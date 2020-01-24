@@ -1,0 +1,12 @@
+[submodule "builders/UNC-NLP"]
+	path = builders/UNC-NLP
+	url = git@github.com:easonnie/combine-FEVER-NSMN.git
+[submodule "builders/UCL-NLP"]
+	path = builders/UCL-NLP
+	url = git@github.com:uclnlp/fever.git
+[submodule "builders/UKP-TU-Darmstadt"]
+	path = builders/UKP-TU-Darmstadt
+	url = git@github.com:UKPLab/fever-2018-team-athene.git
+[submodule "builders/papelo-NEC-labs-america"]
+	path = builders/papelo-NEC-labs-america
+	url = git@github.com:necla-ml/fever2018.git
