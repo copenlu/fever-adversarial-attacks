@@ -121,8 +121,7 @@ if __name__ == "__main__":
 
     device = torch.device("cuda") if args.gpu else torch.device("cpu")
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-    collate_fn = partial(collate_fever, tokenizer=tokenizer, device=device,
-                        return_attention_masks=False, pad_to_max_length=True)
+    collate_fn = partial(collate_fever, tokenizer=tokenizer, device=device)
 
     if args.model == 'lstm':
         model = NLILSTM(tokenizer, args, n_labels=args.labels).to(device)

@@ -22,12 +22,10 @@ def train_model(model: torch.nn.Module,
     best_val, best_model_weights = {'val_f1': 0}, None
 
     for ep in range(n_epochs):
-        # losses = []
         for i, batch in enumerate(tqdm(train_dl, desc='Training')):
             model.train()
             optimizer.zero_grad()
-            print(batch[0].shape)
-            loss, logits = model(batch[0], attention_mask=batch[1], labels=batch[2])
+            loss, logits = model(batch[0], attention_mask=batch[0]>1, labels=batch[1])
 
             loss.backward()
 
@@ -54,11 +52,11 @@ def eval_model(model: torch.nn.Module, test_dl: BatchSampler):
         logits_all = []
         losses = []
         for batch in tqdm(test_dl, desc="Evaluation"):
-            loss, logits_val = model(batch[0], attention_mask=batch[1], labels=batch[2])
-            loss = loss_f(logits_val, batch[2].long())
+            loss, logits_val = model(batch[0], attention_mask=batch[0]>1, labels=batch[1])
+            loss = loss_f(logits_val, batch[1].long())
             losses.append(loss.item())
 
-            labels_all += batch[2].detach().cpu().numpy().tolist()
+            labels_all += batch[1].detach().cpu().numpy().tolist()
             logits_all += logits_val.detach().cpu().numpy().tolist()
 
         prediction = np.argmax(np.asarray(logits_all).reshape(-1, args.labels), axis=-1)
@@ -96,8 +94,7 @@ if __name__ == "__main__":
     device = torch.device("cuda") if args.gpu else torch.device("cpu")
 
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-    collate_fn = partial(collate_fever, tokenizer=tokenizer, device=device,
-                         return_attention_masks=True, pad_to_max_length=False)
+    collate_fn = partial(collate_fever, tokenizer=tokenizer, device=device)
 
     transformer_config = BertConfig.from_pretrained('bert-base-uncased', num_labels=args.labels)
 

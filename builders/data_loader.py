@@ -142,26 +142,14 @@ def evidence_text(instance):
     return ' '.join([_s[2] for _s in instance['evidence']])
 
 
-def collate_fever(instances: List[Dict],
-                        tokenizer: PreTrainedTokenizer,
-                        return_attention_masks: bool = True,
-                        pad_to_max_length: bool = False,
-                        device='cuda') -> List[torch.Tensor]:
+def collate_fever(instances: List[Dict], tokenizer: PreTrainedTokenizer, device='cuda') -> List[torch.Tensor]:
 
-    result = tokenizer.batch_encode_plus([(_x['claim'], evidence_text(_x)) for _x in instances],
-                                         add_special_tokens=True,
-                                         return_tensors='pt',
-                                         return_attention_masks=return_attention_masks,
-                                         max_length=_MAX_LEN_TRANSFORMER,
-                                         pad_to_max_length=pad_to_max_length)
+    token_ids = [tokenizer.encode(_x['claim'], evidence_text(_x), max_length=509) for _x in instances]
+    batch_max_len = max([len(_s) for _s in token_ids])
 
-    labels = torch.tensor([_LABELS[_x['label']] for _x in instances], dtype=torch.long)
+    padded_ids_tensor = torch.tensor([_s + [tokenizer.pad_token_id] * (batch_max_len - len(_s))
+                                      for _s in token_ids]).to(device)
+    labels_tensor = torch.tensor([_LABELS[_x['label']] for _x in instances], dtype=torch.long).to(device)
 
-    output_tensors = [result['input_ids']]
-    if return_attention_masks:
-        output_tensors.append(result['attention_mask'])
-    output_tensors.append(labels)
+    return [padded_ids_tensor, labels_tensor]
 
-    output_tensors = tuple(_t.to(device) for _t in output_tensors)
-
-    return list(_t.to(device) for _t in output_tensors)
