@@ -17,25 +17,30 @@ from transformers import BertTokenizer
 def train_model(model: torch.nn.Module,
                 train_dl: BatchSampler, dev_dl: BatchSampler,
                 optimizer: torch.optim.Optimizer,
-                scheduler:torch.optim.lr_scheduler.LambdaLR,
+                scheduler: torch.optim.lr_scheduler.LambdaLR,
                 n_epochs: int,
-                early_stopping:EarlyStopping) -> (Dict, Dict):
+                early_stopping: EarlyStopping) -> (Dict, Dict):
 
-    loss_f = torch.nn.NLLLoss()
+    if args.labels == 2:
+        loss_f = torch.nn.BCEWithLogitsLoss()
+    else:
+        loss_f = torch.nn.CrossEntropyLoss()
+
     best_val, best_model_weights = {'val_f1': 0}, None
 
     for ep in range(n_epochs):
-        # losses = []
+        losses = []
         model.train()
         for i, batch in enumerate(tqdm(train_dl, desc='Training')):
             optimizer.zero_grad()
-            logits = model(batch[0])
-            loss = loss_f(logits, batch[1].long())
+            prediction = model(batch[0])
+            loss = loss_f(prediction.squeeze(), batch[1].float())
             loss.backward()
 
             optimizer.step()
-            # losses.append(loss.item())
+            losses.append(loss.item())
 
+        print('Training loss:', np.mean(losses))
         val_p, val_r, val_f1, val_loss = eval_model(model, dev_dl)
         current_val = {'val_p': val_p, 'val_r': val_r, 'val_f1': val_f1, 'val_loss': val_loss, 'ep': ep}
 
@@ -55,22 +60,30 @@ def train_model(model: torch.nn.Module,
 
 def eval_model(model: torch.nn.Module, test_dl: BucketBatchSampler):
     model.eval()
-    loss_f = torch.nn.CrossEntropyLoss()
+    if args.labels == 2:
+        loss_f = torch.nn.BCEWithLogitsLoss()
+    else:
+        loss_f = torch.nn.CrossEntropyLoss()
+
     with torch.no_grad():
         labels_all = []
-        logits_all = []
+        predictions_all = []
         losses = []
         for batch in tqdm(test_dl, desc="Evaluation"):
-            logits_val = model(batch[0])
-            loss_val = loss_f(logits_val, batch[1].long())
+            predictions = model(batch[0])
+            loss_val = loss_f(predictions.squeeze(), batch[1].float())
             losses.append(loss_val.item())
 
             labels_all += batch[1].detach().cpu().numpy().tolist()
-            logits_all += logits_val.detach().cpu().numpy().tolist()
+            predictions_all += predictions.detach().cpu().numpy().tolist()
 
-        prediction = np.argmax(np.array(logits_all), axis=-1)
-        p, r, f1, _ = precision_recall_fscore_support(labels_all, prediction, average='macro')
-        print(confusion_matrix(labels_all, prediction))
+        if args.labels == 2:
+            sigmoid = torch.nn.Sigmoid()
+            predictions = (sigmoid(torch.tensor(predictions_all)).squeeze() > 0.5).detach().cpu().numpy().tolist()
+        else:
+            predictions = np.argmax(np.array(predictions_all), axis=-1)
+        p, r, f1, _ = precision_recall_fscore_support(labels_all, predictions, average='macro')
+        print(confusion_matrix(labels_all, predictions))
 
     return p, r, f1, np.mean(losses)
 
@@ -89,7 +102,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--batch_size", help="Batch size", type=int, default=8)
     parser.add_argument("--lr", help="Learning Rate", type=float, default=5e-5)
-    parser.add_argument("--epochs", help="Epochs number", type=int, default=3)
+    parser.add_argument("--epochs", help="Epochs number", type=int, default=100)
     parser.add_argument("--mode", help="Mode for the script", type=str, default='train', choices=['train', 'test'])
     parser.add_argument("--patience", help="Early stopping patience", type=int, default=5)
 

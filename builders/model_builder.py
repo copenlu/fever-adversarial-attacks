@@ -117,7 +117,9 @@ class NLILSTM(torch.nn.Module):
 
         for i in range(1, len(args.hidden_sizes)):
             self.hidden_layers.append(torch.nn.Linear(args.hidden_sizes[i - 1], args.hidden_sizes[i]))
-        self.hidden_layers.append(torch.nn.Linear(args.hidden_sizes[-1], n_labels))
+
+        output_units = n_labels if n_labels > 2 else 1
+        self.hidden_layers.append(torch.nn.Linear(args.hidden_sizes[-1], output_units))
 
         for _hl in self.hidden_layers:
             init.xavier_uniform_(_hl.weight)
@@ -140,8 +142,7 @@ class NLILSTM(torch.nn.Module):
         for hidden_layer in self.hidden_layers:
             output = hidden_layer(output)
 
-        scores = self.softmax(output)
-        return scores
+        return output
 
 
 class NLICNN(torch.nn.Module):
@@ -160,7 +161,8 @@ class NLICNN(torch.nn.Module):
                                                     args.stride, args.padding)
                             for kernel_height in args.kernel_heights])
 
-        self.final = torch.nn.Linear(len(args.kernel_heights) * args.out_channels, n_labels)
+        output_units = n_labels if n_labels > 2 else 1
+        self.final = torch.nn.Linear(len(args.kernel_heights) * args.out_channels, output_units)
 
     def conv_block(self, input, conv_layer):
         conv_out = conv_layer(input)  # conv_out.size() = (batch_size, out_channels, dim, 1)
@@ -181,7 +183,7 @@ class NLICNN(torch.nn.Module):
         # all_out.size() = (batch_size, num_kernels*out_channels)
         fc_in = self.dropout(all_out)
         # fc_in.size()) = (batch_size, num_kernels*out_channels)
-        logits = self.final(fc_in)
+        output = self.final(fc_in)
 
-        return logits
+        return output
 
