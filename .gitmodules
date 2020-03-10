@@ -10,3 +10,9 @@
 [submodule "builders/papelo-NEC-labs-america"]
 	path = builders/papelo-NEC-labs-america
 	url = git@github.com:necla-ml/fever2018.git
+[submodule "universal-triggers"]
+	path = universal_triggers
+	url = git@github.com:Eric-Wallace/universal-triggers.git
+[submodule "universal_triggers"]
+	path = universal_triggers
+	url = git@github.com:Eric-Wallace/universal-triggers.git
