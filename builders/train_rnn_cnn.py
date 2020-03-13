@@ -34,7 +34,7 @@ def train_model(model: torch.nn.Module,
         for i, batch in enumerate(tqdm(train_dl, desc='Training')):
             optimizer.zero_grad()
             prediction = model(batch[0])
-            loss = loss_f(prediction.squeeze(), batch[1].float())
+            loss = loss_f(prediction, batch[1])
             loss.backward()
 
             optimizer.step()
@@ -71,7 +71,7 @@ def eval_model(model: torch.nn.Module, test_dl: BucketBatchSampler):
         losses = []
         for batch in tqdm(test_dl, desc="Evaluation"):
             predictions = model(batch[0])
-            loss_val = loss_f(predictions.squeeze(), batch[1].float())
+            loss_val = loss_f(predictions.squeeze(), batch[1])
             losses.append(loss_val.item())
 
             labels_all += batch[1].detach().cpu().numpy().tolist()
@@ -92,7 +92,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--gpu", help="Flag for training on gpu", action='store_true', default=False)
     parser.add_argument("--seed", help="Random seed", type=int, default=73)
-    parser.add_argument("--labels", help="2 labels if NOT ENOUGH INFO excluded, 3 otherwise", type=int, default=2)
+    parser.add_argument("--labels", help="2 labels if NOT ENOUGH INFO excluded, 3 otherwise", type=int, default=3)
 
     parser.add_argument("--train_dataset", help="Path to the train datasets", default='data/train_nli.jsonl', type=str)
     parser.add_argument("--dev_dataset", help="Path to the dev datasets", default='data/dev_nli.jsonl', type=str)
@@ -160,7 +160,7 @@ if __name__ == "__main__":
         print(model)
         optimizer = AdamW(model.parameters(), lr=args.lr)
         scheduler = ReduceLROnPlateau(optimizer, verbose=True)
-        es = EarlyStopping(patience=args.patience, percentage=False, mode='max', min_delta=0.0)
+        es = EarlyStopping(patience=args.patience, percentage=False, mode='min', min_delta=0.0)
 
         best_model_w, best_perf = train_model(model, train_dl, dev_dl, optimizer, scheduler, args.epochs, es)
 
