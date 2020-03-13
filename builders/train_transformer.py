@@ -31,7 +31,6 @@ def train_model(model: torch.nn.Module,
 
             optimizer.step()
             scheduler.step()
-            # losses.append(loss.item())
 
         val_p, val_r, val_f1, val_loss = eval_model(model, dev_dl)
         current_val = {'val_f1': val_f1, 'val_p': val_p, 'val_r': val_p, 'val_loss': val_loss, 'ep': ep}
@@ -70,7 +69,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--gpu", help="Flag for training on gpu", action='store_true', default=False)
     parser.add_argument("--seed", help="Random seed", type=int, default=73)
-    parser.add_argument("--labels", help="2 labels if NOT ENOUGH INFO excluded, 3 otherwise", type=int, default=2)
+    parser.add_argument("--labels", help="2 labels if NOT ENOUGH INFO excluded, 3 otherwise", type=int, default=3)
 
     parser.add_argument("--train_dataset", help="Path to the train datasets", default='data/train_nli.jsonl', type=str)
     parser.add_argument("--dev_dataset", help="Path to the dev datasets", default='data/dev_nli.jsonl', type=str)
