@@ -155,7 +155,7 @@ if __name__ == "__main__":
     # Rank all of the triggers based on the number of times they were selected
     ranked_triggers = list(sorted(trigger_counts.items(), key=lambda x: x[1], reverse=True))
     with open(f'./attack_results/{args.attack_class}_to_{args.target}_{num_trigger_tokens}triggers.tsv', 'wt') as f:
-        for trigger,count in ranked_triggers[:20]:
+        for trigger,count in ranked_triggers:
             trigger_token_ids = tokenizer.convert_tokens_to_ids(trigger.split(" "))
             acc = eval_model(model, test_dl, trigger_token_ids)
             f.write(f"{trigger}\t{count}\t{acc}\n")
