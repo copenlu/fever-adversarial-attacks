@@ -3,7 +3,7 @@ from transformers import PreTrainedTokenizer
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler, RandomSampler, Sampler, SequentialSampler
 from torch.utils.data import Dataset
 import math
-from typing import List, Dict
+from typing import List, Dict, AnyStr, Set
 import json
 
 _LABELS = {'SUPPORTS': 0, 'REFUTES': 1, 'NOT ENOUGH INFO': 2}
@@ -115,6 +115,14 @@ class FeverDataset(Dataset):
             for line in out:
                 line = json.loads(line)
                 self._dataset.append(line)
+
+    def filter_dataset(self, labels: Set[AnyStr]):
+        """
+        Filters the dataset to only samples with the provided labels
+        :param labels: A list of valid labels
+        """
+        self._dataset = [ex for ex in self._dataset if ex['label'] in labels]
+
 
     def __len__(self):
         return len(self._dataset)

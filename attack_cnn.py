@@ -14,6 +14,9 @@ from torch.utils.data.sampler import BatchSampler
 from builders.data_loader import collate_fever, FeverDataset, BucketBatchSampler, sort_key
 import triggers_utils
 from builders.data_loader import _LABELS as label_map
+from builders.model_builder import NLILSTM
+from builders.model_builder import NLICNN
+
 from universal_triggers import attacks
 import gc
 from collections import defaultdict
@@ -22,23 +25,33 @@ from torch.nn import DataParallel
 
 def eval_model(model: torch.nn.Module, test_dl: BatchSampler, trigger_token_ids: List = None):
     model.eval()
+    if args.labels == 2:
+        loss_f = torch.nn.BCEWithLogitsLoss()
+    else:
+        loss_f = torch.nn.CrossEntropyLoss()
+
     with torch.no_grad():
         labels_all = []
-        logits_all = []
+        predictions_all = []
         losses = []
         for batch in tqdm(test_dl, desc="Evaluation"):
-            # Attach triggers if present
-            loss, logits_val, labels = triggers_utils.evaluate_batch_bert(model, batch, trigger_token_ids)
-            losses.append(loss.detach().item())
+            predictions = model(batch[0])
+            loss_val = loss_f(predictions.squeeze(), batch[1])
+            losses.append(loss_val.item())
 
-            labels_all += labels.detach().cpu().numpy().tolist()
-            logits_all += logits_val.detach().cpu().numpy().tolist()
+            labels_all += batch[1].detach().cpu().numpy().tolist()
+            predictions_all += predictions.detach().cpu().numpy().tolist()
 
-        prediction = np.argmax(np.asarray(logits_all).reshape(-1, args.labels), axis=-1)
-        #p, r, f1, _ = precision_recall_fscore_support(labels_all, prediction, average='binary')
+        if args.labels == 2:
+            sigmoid = torch.nn.Sigmoid()
+            predictions = (sigmoid(torch.tensor(predictions_all)).squeeze() > 0.5).detach().cpu().numpy().tolist()
+        else:
+            predictions = np.argmax(np.array(predictions_all), axis=-1)
+        # p, r, f1, _ = precision_recall_fscore_support(labels_all, predictions, average='macro')
+        # print(confusion_matrix(labels_all, predictions))
 
         #print(confusion_matrix(labels_all, prediction))
-        acc = sum(prediction == labels_all) / len(labels_all)
+        acc = sum(predictions == labels_all) / len(labels_all)
 
     return acc
 
@@ -54,6 +67,22 @@ if __name__ == "__main__":
     parser.add_argument("--seed", help="Random seed", type=int, default=73)
     parser.add_argument("--labels", help="2 labels if NOT ENOUGH INFO excluded, 3 otherwise", type=int, default=2)
     parser.add_argument("--trigger_length", help="The total length of the trigger", type=int, default=1)
+    parser.add_argument("--model", help="Model for training", type=str, default='lstm', choices=['lstm', 'cnn'])
+    parser.add_argument("--embedding_dir", help="Path to directory with pretrained embeddings", default='./', type=str)
+    parser.add_argument("--dropout", help="Path to directory with pretrained embeddings", default=0.1, type=float)
+    parser.add_argument("--embedding_dim", help="Dimension of embeddings", choices=[50, 100, 200, 300], default=100,
+                        type=int)
+    # RNN ARGUMENTS
+    parser.add_argument("--hidden_lstm", help="Number of units in the hidden layer", default=100, type=int)
+    parser.add_argument("--num_layers", help="Number of rnn layers", default=1, type=int)
+    parser.add_argument("--hidden_sizes", help="Number of units in the hidden layer", default=[100, 50], type=int,
+                        nargs='+')
+    # CNN ARGUMENTS
+    parser.add_argument("--in_channels", type=int, default=1)
+    parser.add_argument("--out_channels", type=int, default=100)
+    parser.add_argument("--kernel_heights", help="filter windows", type=int, nargs='+', default=[2, 3, 4, 5])
+    parser.add_argument("--stride", help="stride", type=int, default=1)
+    parser.add_argument("--padding", help="padding", type=int, default=0)
 
     args = parser.parse_args()
 
@@ -63,8 +92,8 @@ if __name__ == "__main__":
     torch.backends.cudnn.deterministic = True
     np.random.seed(args.seed)
 
-    if not os.path.exists('./attack_results/transformer/larger_batch_size'):
-        os.makedirs('./attack_results/transformer/larger_batch_size')
+    if not os.path.exists('./attack_results/cnn/larger_batch_size'):
+        os.makedirs('./attack_results/cnn/larger_batch_size')
 
     device = torch.device("cuda") if args.gpu else torch.device("cpu")
 
@@ -75,11 +104,17 @@ if __name__ == "__main__":
 
     print(args, flush=True)
 
-    model = BertForSequenceClassification.from_pretrained('bert-base-uncased', config=transformer_config).to(device)
-    # Adds a hook to get the embedding gradients
-    triggers_utils.add_hooks_bert(model)
+    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    collate_fn = partial(collate_fever, tokenizer=tokenizer, device=device)
+
+    if args.model == 'lstm':
+        model = NLILSTM(tokenizer, args, n_labels=args.labels).to(device)
+    else:
+        model = NLICNN(tokenizer, args, n_labels=args.labels).to(device)    # Adds a hook to get the embedding gradients
+
+    triggers_utils.add_hooks_rnn_cnn(model)
     # Get the embedding weight
-    embedding_weight = triggers_utils.get_embedding_weight_bert(model)
+    embedding_weight = triggers_utils.get_embedding_weight_rnn_cnn(model)
 
     test = FeverDataset(args.dataset)
     # Subsample the dataset
@@ -117,7 +152,7 @@ if __name__ == "__main__":
             model.train()  # rnn cannot do backwards in train mode
 
             # get grad of triggers
-            averaged_grad = triggers_utils.get_average_grad_bert(model, batch, trigger_token_ids, target_label)
+            averaged_grad = triggers_utils.get_average_grad_rnn_cnn(model, batch, trigger_token_ids, target_label)
 
             # find attack candidates using an attack method
             cand_trigger_token_ids = attacks.hotflip_attack(averaged_grad,
@@ -135,7 +170,7 @@ if __name__ == "__main__":
             #                                                        decrease_prob=True)
 
             # query the model to get the best candidates
-            trigger_token_ids = triggers_utils.get_best_candidates_bert(model,
+            trigger_token_ids = triggers_utils.get_best_candidates_rnn_cnn(model,
                                                           batch,
                                                           trigger_token_ids,
                                                           cand_trigger_token_ids)
@@ -155,7 +190,7 @@ if __name__ == "__main__":
 
     # Rank all of the triggers based on the number of times they were selected
     ranked_triggers = list(sorted(trigger_counts.items(), key=lambda x: x[1], reverse=True))
-    with open(f'./attack_results/transformer/larger_batch_size/{args.attack_class}_to_{args.target}_t{num_trigger_tokens}_b{args.batch_size}_triggers.tsv', 'wt') as f:
+    with open(f'./attack_results/cnn/larger_batch_size/{args.attack_class}_to_{args.target}_{num_trigger_tokens}triggers.tsv', 'wt') as f:
         for trigger,count in ranked_triggers:
             trigger_token_ids = tokenizer.convert_tokens_to_ids(trigger.split(" "))
             acc = eval_model(model, test_dl, trigger_token_ids)

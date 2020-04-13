@@ -5,6 +5,9 @@ from transformers import pipeline
 from builders.data_loader import FeverDataset
 from transformers import BertTokenizer
 from tqdm import tqdm
+import torch
+from triggers_utils import perplexity
+import ipdb
 
 
 if __name__ == "__main__":
@@ -30,7 +33,30 @@ if __name__ == "__main__":
     test.filter_dataset({args.attack_class})
 
     with open(f'claims_{args.attack_class}.txt', 'wt') as f:
-        for claim in tqdm(test._dataset):
+        #for claim in tqdm(test._dataset):
+        for claim in test._dataset:
+
+            # First, find where is the best place to put the trigger
+            # tloc = (-1, float('inf'))
+            # tokens = tokenizer.tokenize(claim['claim'])
+            # for j in range(len(tokens) - 1):
+            #     if '##' not in tokens[j+1]:
+            #         input_ids = [101] + tokenizer.convert_tokens_to_ids(tokens[:j] + [triggers.values[0,0]] + tokens[j:]) + [102]
+            #         input_ids = torch.tensor(input_ids).unsqueeze((0)).to(device)
+            #         logits = nlp.model(input_ids)[0]
+            #         perp = perplexity(logits.squeeze(), input_ids.squeeze())
+            #         if perp < tloc[1]:
+            #             tloc = (j, perp)
+            # input_ids = [101] + tokenizer.convert_tokens_to_ids(tokens + [triggers.values[0, 0]]) + [102]
+            # input_ids = torch.tensor(input_ids).unsqueeze((0)).to(device)
+            # logits = nlp.model(input_ids)[0]
+            # perp = perplexity(logits.squeeze(), input_ids.squeeze())
+            # if perp < tloc[1]:
+            #     tloc = (j, perp)
+            # print(tloc[1])
+            # print(tokens[:tloc[0]] + [triggers.values[0, 0]] + tokens[tloc[0]:])
+            # print()
+
             # TODO: come up with a better stopping criterion
             beams = [([triggers.values[i,0]], 0) for i in range(args.beam_size)]
             while len(beams[0][0]) < 5:
@@ -41,8 +67,23 @@ if __name__ == "__main__":
                     # Get the log probability of each
                     for probs in most_probable:
                         token = tokenizer.convert_ids_to_tokens(probs['token'])
-                        new_beams.append((beam[0] + [token], beam[1] + np.log(probs['score'])))
+                        # Use perplexity instead
+                        pt = ' '.join(beam[0] + [token])
+                        input_ids = tokenizer.encode(f"{pt} {claim['claim']}", add_special_tokens=True)
+                        input_ids = torch.tensor(input_ids).unsqueeze((0)).to(device)
+                        logits = nlp.model(input_ids)[0]
+                        perp = perplexity(logits.squeeze(), input_ids.squeeze())
+                        new_beams.append((beam[0] + [token], perp))
+
+                        #new_beams.append((beam[0] + [token], beam[1] + np.log(probs['score'])))
                 # Get new beams
-                beams = sorted(new_beams, key=lambda x: x[1], reverse=True)[:args.beam_size]
+                beams = sorted(new_beams, key=lambda x: x[1])[:args.beam_size]
+                #beams = sorted(new_beams, key=lambda x: x[1], reverse=True)[:args.beam_size]
             prepend_text = ' '.join(beam[0])
-            f.write(f"{prepend_text} {claim['claim']}\n")
+            # Get the perplexity
+            input_ids = tokenizer.encode(f"{prepend_text} {claim['claim']}", add_special_tokens=True)
+            input_ids = torch.tensor(input_ids).unsqueeze((0)).to(device)
+            logits = nlp.model(input_ids)[0]
+            perp = perplexity(logits.squeeze(), input_ids.squeeze())
+            f.write(f"{prepend_text} {claim['claim']}\t{perp}\n")
+            print(f"{prepend_text} {claim['claim']}\t{perp}\n")
