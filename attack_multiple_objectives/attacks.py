@@ -78,9 +78,25 @@ def pairwise_distance(src_embeds, vocab_embeds, squared=False):
         return sq_norm.sqrt()
 
 
+def tailor_simple(averaged_grad, embedding_matrix, increase_loss=False):
+    """
+    Tailor approximation simplified by computing just the largest gradient w.r.t. the target label.
+    """
+    averaged_grad = averaged_grad.cpu()
+    embedding_matrix = embedding_matrix.cpu()
+    averaged_grad = averaged_grad.unsqueeze(0)
+    gradient_dot_embedding_matrix = torch.einsum("bij,kj->bik",
+                                                 (averaged_grad, embedding_matrix))
+    if not increase_loss:
+        gradient_dot_embedding_matrix *= -1  # lower versus increase the class probability.
+
+    return gradient_dot_embedding_matrix
+
+
 def tailor_first(averaged_grad, embedding_matrix, trigger_token_ids, reverse_loss=False, normalize=False):
     """
-    First order Tailor's approximation in the negative direction  of the current and the candidate trigger
+    Tailor approximation of the larget gradient compared to the gradient of the current token,
+    all w.r.t. the target class.
     """
     averaged_grad = averaged_grad.cpu()
     embedding_matrix = embedding_matrix.cpu()
@@ -107,27 +123,14 @@ def tailor_first(averaged_grad, embedding_matrix, trigger_token_ids, reverse_los
     return neg_dir_dot_grad
 
 
-def hotflip_attack_fixed(averaged_grad, embedding_matrix, trigger_token_ids, num_candidates=1):
-    """
-    Find tokens that maximise the negative direction of Tailor's approximation for FC model.
-    """
-    neg_dir_dot_grad = tailor_first(averaged_grad, embedding_matrix, trigger_token_ids)
-
-    if num_candidates > 1:  # get top k options
-        _, best_k_ids = torch.topk(neg_dir_dot_grad, num_candidates, dim=2)
-        return best_k_ids.detach().cpu().numpy()[0]
-    _, best_at_each_step = neg_dir_dot_grad.max(2)
-    return best_at_each_step[0].detach().cpu().numpy()
-
-
-def hotflip_attack_nli(averaged_grad, embedding_matrix, averaged_grad_nli, embedding_matrix_nli, trigger_token_ids,
+def hotflip_attack_nli(averaged_grad, embedding_matrix, averaged_grad_nli, embedding_matrix_nli, nli_w=0.4, fc_w=0.6,
                        num_candidates=1):
     """
-    Find tokens that maximise the negative direction of Tailor's approximation for FC and NLI's model negative class.
+    Optimize for fc target class negative direction and nli negation - positive.
     """
-    neg_dir_dot_grad = tailor_first(averaged_grad, embedding_matrix, trigger_token_ids)
-    neg_dir_dot_grad_nli = tailor_first(averaged_grad_nli, embedding_matrix_nli, trigger_token_ids, reverse_loss=True)
-    neg_dir_dot_grad = neg_dir_dot_grad + neg_dir_dot_grad_nli
+    neg_dir_dot_grad = tailor_simple(averaged_grad, embedding_matrix, increase_loss=False)
+    neg_dir_dot_grad_nli = tailor_simple(averaged_grad_nli, embedding_matrix_nli, increase_loss=True)
+    neg_dir_dot_grad = fc_w * neg_dir_dot_grad + nli_w * neg_dir_dot_grad_nli
 
     if num_candidates > 1:  # get top k options
         _, best_k_ids = torch.topk(neg_dir_dot_grad, num_candidates, dim=2)

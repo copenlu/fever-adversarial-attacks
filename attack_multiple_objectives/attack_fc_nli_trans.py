@@ -109,7 +109,7 @@ if __name__ == "__main__":
                                                                     target_label)
 
             # find attack candidates using an attack method
-            # cand_trigger_token_ids = attacks.hotflip_attack_fixed(averaged_grad,
+            # cand_trigger_token_ids = attacks.hotflip_attack(averaged_grad,
             #                                                 fc_model_ew,
             #                                                 trigger_token_ids,
             #                                                 num_candidates=50)
@@ -117,15 +117,14 @@ if __name__ == "__main__":
                                                                 fc_model_ew,
                                                                 avg_grad_nli,
                                                                 nli_model_ew,
-                                                                trigger_token_ids,
-                                                                num_candidates=200)
+                                                                num_candidates=40,
+                                                                fc_w=0.6, nli_w=0.4)
 
             # query the model to get the best candidates
             trigger_token_ids = triggers_utils.get_best_candidates_bert(fc_model,
                                                                         batch,
                                                                         trigger_token_ids,
                                                                         cand_trigger_token_ids)
-            # batch_triggers[i] = trigger_token_ids
 
             new_trigger = tokenizer.convert_ids_to_tokens(trigger_token_ids)
             trigger_counts[" ".join(new_trigger)] += 1
