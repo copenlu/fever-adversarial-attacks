@@ -196,13 +196,13 @@ def eval_model(model: torch.nn.Module, test_dl: BatchSampler, trigger_token_ids:
 
 
 def eval_nli(model: torch.nn.Module, test_dl: BatchSampler, tokenizer, trigger_token_ids: List = None):
+    softmax = torch.nn.Softmax(dim=1)
     model.eval()
     with torch.no_grad():
         logits_all = []
         for batch in tqdm(test_dl, desc="Evaluation"):
             # Attach triggers if present
             loss, logits_val = evaluate_batch_nli(model, batch, tokenizer, trigger_token_ids)
-            logits_all += logits_val.detach().cpu().numpy().tolist()
-
+            logits_all += softmax(logits_val).detach().cpu().numpy().tolist()
         prob = numpy.mean([_l[NLI_DIC_LABELS['contradiction']] for _l in logits_all])
     return prob
