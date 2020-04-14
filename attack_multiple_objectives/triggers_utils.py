@@ -7,6 +7,8 @@ from typing import Tuple
 import numpy
 import torch
 import torch.optim as optim
+from torch.utils.data.sampler import BatchSampler
+from tqdm import tqdm
 
 from attack_multiple_objectives.nli_utils import NLI_DIC_LABELS
 
@@ -173,3 +175,34 @@ def get_loss_per_candidate_bert(index, model, batch, trigger_token_ids, cand_tri
         loss = loss.cpu().detach().numpy()
         loss_per_candidate.append((deepcopy(trigger_token_ids_one_replaced), loss))
     return loss_per_candidate
+
+
+def eval_model(model: torch.nn.Module, test_dl: BatchSampler, trigger_token_ids: List = None, labels_num=3):
+    model.eval()
+    with torch.no_grad():
+        labels_all = []
+        logits_all = []
+        for batch in tqdm(test_dl, desc="Evaluation"):
+            # Attach triggers if present
+            loss, logits_val, labels = evaluate_batch_bert(model, batch, trigger_token_ids)
+
+            labels_all += labels.detach().cpu().numpy().tolist()
+            logits_all += logits_val.detach().cpu().numpy().tolist()
+
+        prediction = numpy.argmax(numpy.asarray(logits_all).reshape(-1, labels_num), axis=-1)
+        acc = sum(prediction == labels_all) / len(labels_all)
+
+    return acc
+
+
+def eval_nli(model: torch.nn.Module, test_dl: BatchSampler, tokenizer, trigger_token_ids: List = None):
+    model.eval()
+    with torch.no_grad():
+        logits_all = []
+        for batch in tqdm(test_dl, desc="Evaluation"):
+            # Attach triggers if present
+            loss, logits_val = evaluate_batch_nli(model, batch, tokenizer, trigger_token_ids)
+            logits_all += logits_val.detach().cpu().numpy().tolist()
+
+        prob = numpy.mean([_l[NLI_DIC_LABELS['contradiction']] for _l in logits_all])
+    return prob
