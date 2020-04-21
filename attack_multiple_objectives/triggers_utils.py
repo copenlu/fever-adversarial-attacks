@@ -274,14 +274,40 @@ def eval_model(model: torch.nn.Module, test_dl: BatchSampler, trigger_token_ids:
     return acc
 
 
-def eval_nli(model: torch.nn.Module, test_dl: BatchSampler, tokenizer, trigger_token_ids: List = None):
+def eval_ppl(model: torch.nn.Module, test_dl: BatchSampler, tokenizer, trigger_token_ids: List = None):
+    model.eval()
+    with torch.no_grad():
+        ppl_loss = []
+        for batch in tqdm(test_dl, desc="Evaluation"):
+            # Attach triggers if present
+            loss, prediction_scores = evaluate_batch_ppl(model, batch, tokenizer, trigger_token_ids)
+            loss = torch.exp(loss)
+            ppl_loss.append(loss.item()/batch[0].shape[0])
+    return numpy.mean(ppl_loss, dtype=float)
+
+
+def eval_nli(model: torch.nn.Module, test_dl: BatchSampler, tokenizer, trigger_token_ids: List = None, labels_num=3):
     softmax = torch.nn.Softmax(dim=1)
     model.eval()
     with torch.no_grad():
-        logits_all = []
+        logits_all, logits_all_orig = [], []
         for batch in tqdm(test_dl, desc="Evaluation"):
             # Attach triggers if present
+            loss_orig, logits_val_orig = evaluate_batch_nli(model, batch, tokenizer)
             loss, logits_val = evaluate_batch_nli(model, batch, tokenizer, trigger_token_ids)
             logits_all += softmax(logits_val).detach().cpu().numpy().tolist()
-        prob = numpy.mean([_l[NLI_DIC_LABELS['contradiction']] for _l in logits_all])
-    return prob
+            logits_all_orig += softmax(logits_val_orig).detach().cpu().numpy().tolist()
+
+        prediction = numpy.argmax(numpy.asarray(logits_all).reshape(-1, labels_num), axis=-1)
+        unique, counts = numpy.unique(prediction, return_counts=True)
+        pred_dict = dict(zip(unique, counts))
+        pred_dict = {int(k): int(v) for k,v in pred_dict.items()}
+
+        prediction = numpy.argmax(numpy.asarray(logits_all_orig).reshape(-1, labels_num), axis=-1)
+        unique, counts = numpy.unique(prediction, return_counts=True)
+        pred_dict_orig = dict(zip(unique, counts))
+        pred_dict_orig = {int(k): int(v) for k, v in pred_dict_orig.items()}
+
+        prob_entail = numpy.mean([_l[NLI_DIC_LABELS['entailment']] for _l in logits_all], dtype=float)
+
+    return pred_dict_orig, pred_dict, prob_entail
