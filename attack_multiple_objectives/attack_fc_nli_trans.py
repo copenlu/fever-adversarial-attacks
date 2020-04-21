@@ -8,7 +8,7 @@ import gc
 import numpy as np
 import torch
 from tqdm import tqdm
-from transformers import BertForSequenceClassification
+from transformers import BertForSequenceClassification, BertForMaskedLM
 from transformers import BertTokenizer, BertConfig
 
 from builders.data_loader import _LABELS as label_map
@@ -18,7 +18,7 @@ from attack_multiple_objectives import triggers_utils
 from attack_multiple_objectives.nli_utils import collate_nli_tok_ids
 
 
-def get_nli_model(model_path, tokenizer):
+def get_nli_model(model_path, tokenizer, device='cpu'):
     checkpoint = torch.load(model_path, map_location=lambda storage, loc: storage)
     nli_args = argparse.Namespace(**checkpoint['args'])
     transformer_config = BertConfig.from_pretrained('bert-base-uncased', num_labels=nli_args.labels)
@@ -32,7 +32,7 @@ def get_nli_model(model_path, tokenizer):
     return nli_model, nli_model_ew, collate_nli
 
 
-def get_fc_model(model_path, labels=3):
+def get_fc_model(model_path, tokenizer, labels=3, device='cpu'):
     collate_fn = partial(collate_fever, tokenizer=tokenizer, device=device)
 
     transformer_config = BertConfig.from_pretrained('bert-base-uncased', num_labels=labels)
@@ -45,6 +45,16 @@ def get_fc_model(model_path, labels=3):
     embedding_weight = triggers_utils.get_embedding_weight_bert(model)
 
     return model, embedding_weight, collate_fn
+
+
+def get_ppl_model(device='cpu'):
+    model = BertForMaskedLM.from_pretrained('bert-base-uncased').to(device)
+    model.train()
+
+    triggers_utils.add_hooks_bert(model)  # Adds a hook to get the embedding gradients
+    embedding_weight = triggers_utils.get_embedding_weight_bert(model)
+
+    return model, embedding_weight
 
 
 if __name__ == "__main__":
@@ -61,6 +71,9 @@ if __name__ == "__main__":
     parser.add_argument("--trigger_length", help="The total length of the trigger", type=int, default=1)
     parser.add_argument("--nli_model_path", help="Path to the fine-tuned NLI model", default='snli_transformer',
                         type=str)
+    parser.add_argument("--fc_w", help="The total length of the trigger", type=float, default=1.0)
+    parser.add_argument("--nli_w", help="The total length of the trigger", type=float, default=0.0)
+    parser.add_argument("--ppl_w", help="The total length of the trigger", type=float, default=0.0)
 
     args = parser.parse_args()
 
@@ -76,8 +89,9 @@ if __name__ == "__main__":
     # load models
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
-    nli_model, nli_model_ew, collate_nli = get_nli_model(args.nli_model_path, tokenizer)
-    fc_model, fc_model_ew, collate_fc = get_fc_model(args.model_path, args.labels)
+    nli_model, nli_model_ew, collate_nli = get_nli_model(args.nli_model_path, tokenizer, device)
+    fc_model, fc_model_ew, collate_fc = get_fc_model(args.model_path, tokenizer, args.labels, device)
+    ppl_model, ppl_ew = get_ppl_model(device)
 
     test = FeverDataset(args.dataset)
     # Subsample the dataset
@@ -93,6 +107,7 @@ if __name__ == "__main__":
     for e in range(args.epochs):
         trigger_counts = defaultdict(int)
         for i, batch in tqdm(enumerate(test_dl)):
+            # TODO: decide if the attacks will be batch-specific
             # if e == 0:
             #     trigger_token_ids = tokenizer.convert_tokens_to_ids(["[MASK]"]) * num_trigger_tokens
             #     batch_triggers.append(trigger_token_ids)

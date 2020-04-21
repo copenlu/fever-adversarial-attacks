@@ -58,14 +58,17 @@ def evaluate_batch_nli(model: torch.nn.Module, batch: Tuple, tokenizer, trigger_
     # Attach attack_multiple_objectives if present
     input_ids = batch[0]
     loss_f = torch.nn.CrossEntropyLoss()
-    if trigger_token_ids is not None:
-        input_ids_claim = []
-        for instance in input_ids:
-            instance = instance.detach().cpu().numpy().tolist()
-            sep_index = instance.index(tokenizer.sep_token_id)
-            # get the claim including SEP token, add triggger and append claim without the CLS token
-            claim_tokens = instance[:sep_index + 1] + trigger_token_ids + instance[1:]
-            input_ids_claim.append(claim_tokens)
+    input_ids_claim = []
+
+    if trigger_token_ids == None:
+        trigger_token_ids = []
+
+    for instance in input_ids:
+        instance = instance.detach().cpu().numpy().tolist()
+        sep_index = instance.index(tokenizer.sep_token_id)
+        # get the claim including SEP token, add triggger and append claim without the CLS token
+        claim_tokens = instance[:sep_index + 1] + trigger_token_ids + instance[1:]
+        input_ids_claim.append(claim_tokens[:512])
 
         # pad batch
         max_len = max([len(i) for i in input_ids_claim])
@@ -82,7 +85,55 @@ def evaluate_batch_nli(model: torch.nn.Module, batch: Tuple, tokenizer, trigger_
     return loss, logits_val
 
 
-def get_average_grad_bert_nli(model, batch, trigger_token_ids, tokenizer, target_label=None):
+def evaluate_batch_ppl(model: torch.nn.Module, batch: Tuple, tokenizer, trigger_token_ids: List = None):
+    # Attach attack_multiple_objectives if present
+    input_ids = batch[0]
+    loss_f = torch.nn.CrossEntropyLoss()
+
+    if trigger_token_ids == None:
+        trigger_token_ids = []
+
+    input_ids_claim = []
+    for instance in input_ids:
+        instance = instance.detach().cpu().numpy().tolist()
+        sep_index = instance.index(tokenizer.sep_token_id)
+        # get the claim including SEP token, add triggger and append claim without the CLS token
+        claim_tokens = [tokenizer.cls_token_id] + trigger_token_ids + instance[1:sep_index+1]
+        input_ids_claim.append(claim_tokens)
+
+    # pad batch
+    max_len = max([len(i) for i in input_ids_claim])
+    input_ids_claim = [instance + [tokenizer.pad_token_id] * (max_len - len(instance))
+                       for instance in input_ids_claim]
+    input_ids = torch.tensor(input_ids_claim).cuda()
+
+    outputs = model(input_ids, masked_lm_labels=input_ids)
+    loss, prediction_scores = outputs[:2]
+    return loss, prediction_scores
+
+
+def get_average_grad_bert_ppl(model, batch, trigger_token_ids, tokenizer):
+    """
+    Computes the average gradient w.r.t. the trigger tokens when prepended to every example
+    in the batch. If target_label is set, that is used as the ground-truth label.
+    """
+    # create an dummy optimizer for backprop
+    optimizer = optim.Adam(model.parameters())
+    optimizer.zero_grad()
+
+    global extracted_grads
+    extracted_grads = []  # clear existing stored grads
+    loss, logits_val = evaluate_batch_ppl(model, batch, tokenizer, trigger_token_ids)
+    loss.backward()
+    grads = extracted_grads[0].detach().cpu()
+
+    # average grad across batch size, result only makes sense for trigger tokens at the front
+    averaged_grad = torch.sum(grads, dim=0)
+    averaged_grad = averaged_grad[0:len(trigger_token_ids)]  # return just trigger grads
+    return averaged_grad
+
+
+def get_average_grad_bert_nli(model, batch, trigger_token_ids, tokenizer):
     """
     Computes the average gradient w.r.t. the trigger tokens when prepended to every example
     in the batch. If target_label is set, that is used as the ground-truth label.
@@ -96,6 +147,34 @@ def get_average_grad_bert_nli(model, batch, trigger_token_ids, tokenizer, target
     loss, logits_val = evaluate_batch_nli(model, batch, tokenizer, trigger_token_ids)
     loss.backward()
     grads = extracted_grads[0].detach().cpu()
+
+    # average grad across batch size, result only makes sense for trigger tokens at the front
+    averaged_grad = torch.sum(grads, dim=0)
+    averaged_grad = averaged_grad[0:len(trigger_token_ids)]  # return just trigger grads
+    return averaged_grad
+
+
+def get_average_grad_ppl(model, batch, trigger_token_ids, target_label=None):
+    """
+    Computes the average gradient w.r.t. the trigger tokens when prepended to every example
+    in the batch. If target_label is set, that is used as the ground-truth label.
+    """
+    # create an dummy optimizer for backprop
+    optimizer = optim.Adam(model.parameters())
+    optimizer.zero_grad()
+
+    # prepend attack_multiple_objectives to the batch
+    original_labels = batch[1].clone()
+    if target_label is not None:
+        # set the labels equal to the target (backprop from the target class, not model prediction)
+        batch[1] = int(target_label) * torch.ones_like(batch[1]).cuda()
+    global extracted_grads
+    extracted_grads = []  # clear existing stored grads
+    loss, logits, labels = evaluate_batch_bert(model, batch, trigger_token_ids)
+    loss.backward()
+    # index 0 has the hypothesis grads for SNLI. For SST, the list is of size 1.
+    grads = extracted_grads[0].detach().cpu()
+    batch[1] = original_labels.detach()  # reset labels
 
     # average grad across batch size, result only makes sense for trigger tokens at the front
     averaged_grad = torch.sum(grads, dim=0)
