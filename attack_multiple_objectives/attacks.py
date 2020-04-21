@@ -129,7 +129,7 @@ def hotflip_attack_nli(averaged_grad, embedding_matrix, averaged_grad_nli, embed
     Optimize for fc target class negative direction and nli negation - positive.
     """
     neg_dir_dot_grad = tailor_simple(averaged_grad, embedding_matrix, increase_loss=False)
-    neg_dir_dot_grad_nli = tailor_simple(averaged_grad_nli, embedding_matrix_nli, increase_loss=True)
+    neg_dir_dot_grad_nli = tailor_simple(averaged_grad_nli, embedding_matrix_nli, increase_loss=False)
     neg_dir_dot_grad = fc_w * neg_dir_dot_grad + nli_w * neg_dir_dot_grad_nli
 
     if num_candidates > 1:  # get top k options

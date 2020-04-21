@@ -73,9 +73,9 @@ def evaluate_batch_nli(model: torch.nn.Module, batch: Tuple, tokenizer, trigger_
                            for instance in input_ids_claim]
         input_ids = torch.tensor(input_ids_claim).cuda()
 
-    # eval w.r.t. contradiction - this is the target class in the NLI case,
-    # i.e. the one we want to maximise the loss for.
-    gold = NLI_DIC_LABELS['contradiction'] * torch.ones_like(batch[1]).cuda()
+    # eval w.r.t. entailment - this is the target class in the NLI case,
+    # i.e. the one we want to minimize the loss for.
+    gold = NLI_DIC_LABELS['entailment'] * torch.ones_like(batch[1]).cuda()
     loss, logits_val = model(input_ids, attention_mask=input_ids > 1, labels=gold)
     loss = loss_f(logits_val, gold.long())
 
