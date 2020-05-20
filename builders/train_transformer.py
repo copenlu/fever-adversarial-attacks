@@ -11,7 +11,7 @@ from transformers import AdamW, get_constant_schedule_with_warmup
 from sklearn.metrics import precision_recall_fscore_support, confusion_matrix
 from torch.utils.data.sampler import BatchSampler
 from builders.data_loader import collate_fever, FeverDataset, BucketBatchSampler, sort_key
-
+from transformers import RobertaForSequenceClassification, RobertaConfig, RobertaTokenizer
 
 def train_model(model: torch.nn.Module,
                 train_dl: BatchSampler, dev_dl: BatchSampler,
@@ -25,12 +25,15 @@ def train_model(model: torch.nn.Module,
         for i, batch in enumerate(tqdm(train_dl, desc='Training')):
             model.train()
             optimizer.zero_grad()
-            loss, logits = model(batch[0], attention_mask=batch[0]>1, labels=batch[1])
+            loss, logits = model(batch[0], attention_mask=batch[0]!=tokenizer.pad_token_id, labels=batch[1])
 
             loss.backward()
 
             optimizer.step()
             scheduler.step()
+
+            if i in [600, 700, 100]:
+                print(eval_model(model, dev_dl), flush=True)
 
         val_p, val_r, val_f1, val_loss = eval_model(model, dev_dl)
         current_val = {'val_f1': val_f1, 'val_p': val_p, 'val_r': val_p, 'val_loss': val_loss, 'ep': ep}
@@ -60,7 +63,7 @@ def eval_model(model: torch.nn.Module, test_dl: BatchSampler):
 
         prediction = np.argmax(np.asarray(logits_all).reshape(-1, args.labels), axis=-1)
         p, r, f1, _ = precision_recall_fscore_support(labels_all, prediction, average='macro')
-        print(confusion_matrix(labels_all, prediction))
+        print(confusion_matrix(labels_all, prediction), flush=True)
 
     return p, r, f1, np.mean(losses)
 
@@ -74,6 +77,7 @@ if __name__ == "__main__":
     parser.add_argument("--train_dataset", help="Path to the train datasets", default='data/train_nli.jsonl', type=str)
     parser.add_argument("--dev_dataset", help="Path to the dev datasets", default='data/dev_nli.jsonl', type=str)
     parser.add_argument("--test_dataset", help="Path to the test datasets", default='data/test_nli.jsonl', type=str)
+    parser.add_argument("--type", help="Type of transformer model", choices=['bert', 'roberta'], default='bert')
 
     parser.add_argument("--model_path", help="Path where the model will be serialized", default='ferver_bert', type=str)
 
@@ -91,15 +95,18 @@ if __name__ == "__main__":
     np.random.seed(args.seed)
 
     device = torch.device("cuda") if args.gpu else torch.device("cpu")
+    if args.type == 'bert':
+        tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        transformer_config = BertConfig.from_pretrained('bert-base-uncased', num_labels=args.labels)
+        model = BertForSequenceClassification(transformer_config).to(device)
+    else:
+        tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
+        transformer_config = RobertaConfig.from_pretrained('roberta-base', num_labels=args.labels)  # , use_bfloat16=True
+        model = RobertaForSequenceClassification.from_pretrained('roberta-base', config=transformer_config).to(device)
 
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
     collate_fn = partial(collate_fever, tokenizer=tokenizer, device=device)
-
-    transformer_config = BertConfig.from_pretrained('bert-base-uncased', num_labels=args.labels)
-
     print(args, flush=True)
 
-    model = BertForSequenceClassification.from_pretrained('bert-base-uncased', config=transformer_config).to(device)
     param_optimizer = list(model.named_parameters())
     no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
     optimizer_grouped_parameters = [
