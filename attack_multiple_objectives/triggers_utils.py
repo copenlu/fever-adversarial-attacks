@@ -13,29 +13,34 @@ from tqdm import tqdm
 from attack_multiple_objectives.nli_utils import NLI_DIC_LABELS
 
 
-def get_embedding_weight_bert(model):
+def get_embedding_weight_bert(model, model_type='bert'):
     """
     Extracts and returns the token embedding weight matrix from the model.
     """
-    return model.bert.embeddings.word_embeddings.weight.cpu().detach()
+    if model_type == 'bert':
+        return model.bert.embeddings.word_embeddings.weight.cpu().detach()
+    elif model_type == 'roberta':
+        return model.roberta.embeddings.word_embeddings.weight.cpu().detach()
 
 
 # hook used in add_hooks()
 extracted_grads = []
-
-
 def extract_grad_hook(module, grad_in, grad_out):
     extracted_grads.append(grad_out[0])
 
 
-def add_hooks_bert(model):
+def add_hooks_bert(model, model_type='bert'):
     """
     Finds the token embedding matrix on the model and registers a hook onto it.
     When loss.backward() is called, extracted_grads list will be filled with
     the gradients w.r.t. the token embeddings
     """
-    model.bert.embeddings.word_embeddings.weight.requires_grad = True
-    model.bert.embeddings.word_embeddings.register_backward_hook(extract_grad_hook)
+    if model_type == 'bert':
+        model.bert.embeddings.word_embeddings.weight.requires_grad = True
+        model.bert.embeddings.word_embeddings.register_backward_hook(extract_grad_hook)
+    elif model_type == 'roberta':
+        model.roberta.embeddings.word_embeddings.weight.requires_grad = True
+        model.roberta.embeddings.word_embeddings.register_backward_hook(extract_grad_hook)
 
 
 def evaluate_batch_bert(model: torch.nn.Module, batch: Tuple, trigger_token_ids: List = None):

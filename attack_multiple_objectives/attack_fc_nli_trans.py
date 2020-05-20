@@ -8,8 +8,10 @@ import gc
 import numpy as np
 import torch
 from tqdm import tqdm
-from transformers import BertForSequenceClassification, BertForMaskedLM
+from transformers import BertForSequenceClassification, BertForMaskedLM, AutoTokenizer, \
+    AutoModelForSequenceClassification, AutoModelWithLMHead
 from transformers import BertTokenizer, BertConfig
+from transformers import RobertaForSequenceClassification, RobertaConfig, RobertaTokenizer
 
 from builders.data_loader import _LABELS as label_map
 from builders.data_loader import collate_fever, FeverDataset, BucketBatchSampler, sort_key
@@ -35,14 +37,19 @@ def get_nli_model(model_path, tokenizer, device='cpu'):
 def get_fc_model(model_path, tokenizer, labels=3, device='cpu'):
     collate_fn = partial(collate_fever, tokenizer=tokenizer, device=device)
 
-    transformer_config = BertConfig.from_pretrained('bert-base-uncased', num_labels=labels)
-    model = BertForSequenceClassification.from_pretrained('bert-base-uncased', config=transformer_config).to(device)
+    if type == 'bert':
+        transformer_config = BertConfig.from_pretrained('bert-base-uncased', num_labels=labels)
+        model = BertForSequenceClassification.from_pretrained('bert-base-uncased', config=transformer_config).to(device)
+    else:
+        transformer_config = RobertaConfig.from_pretrained('roberta-base', num_labels=labels)
+        model = RobertaForSequenceClassification.from_pretrained('roberta-base', config=transformer_config).to(device)
+
     checkpoint = torch.load(model_path)
     model.load_state_dict(checkpoint['model'])
     model.train()  # rnn cannot do backwards in train mode
 
-    triggers_utils.add_hooks_bert(model)  # Adds a hook to get the embedding gradients
-    embedding_weight = triggers_utils.get_embedding_weight_bert(model)
+    triggers_utils.add_hooks_bert(model, args.fc_model_type)  # Adds a hook to get the embedding gradients
+    embedding_weight = triggers_utils.get_embedding_weight_bert(model, args.fc_model_type)
 
     return model, embedding_weight, collate_fn
 
@@ -62,6 +69,7 @@ if __name__ == "__main__":
     parser.add_argument("--gpu", help="Flag for training on gpu", action='store_true', default=False)
     parser.add_argument("--dataset", help="Path to the dataset", default='data/dev_nli.jsonl', type=str)
     parser.add_argument("--model_path", help="Path where the model will be serialized", default='ferver_bert', type=str)
+    parser.add_argument("--fc_model_type", help="Type of pretrained model being loaded", default='bert', choices=['bert', 'roberta'])
     parser.add_argument("--batch_size", help="Batch size", type=int, default=8)
     parser.add_argument("--attack_class", help="The particular class to attack", default='SUPPORTS', type=str)
     parser.add_argument("--target", help="The label to convert examples to", default='REFUTES', type=str)
@@ -95,10 +103,11 @@ if __name__ == "__main__":
 
     test = FeverDataset(args.dataset)
     # Subsample the dataset
-    test._dataset = random.sample([i for i in test._dataset if i['label'] == args.attack_class], 1000)
+    test._dataset = [i for i in test._dataset if i['label'] == args.attack_class]
     target_label = label_map[args.target]
     test_dl = BucketBatchSampler(batch_size=args.batch_size, sort_key=sort_key, dataset=test,
                                  collate_fn=collate_fc)
+
     # Initialize attack_multiple_objectives
     num_trigger_tokens = args.trigger_length
     batch_triggers = []
@@ -145,6 +154,7 @@ if __name__ == "__main__":
             # batch_triggers[i] = trigger_token_ids
             new_trigger = tokenizer.convert_ids_to_tokens(trigger_token_ids)
             trigger_counts[" ".join(new_trigger)] += 1
+
             gc.collect()
         print(list(sorted(trigger_counts.items(), key=lambda x: x[1], reverse=True))[:20], flush=True)
 
