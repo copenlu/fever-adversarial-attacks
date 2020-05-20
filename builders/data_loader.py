@@ -7,8 +7,6 @@ from typing import List, Dict, AnyStr, Set
 import json
 
 _LABELS = {'SUPPORTS': 0, 'REFUTES': 1, 'NOT ENOUGH INFO': 2}
-_MAX_LEN_TRANSFORMER = 512 - 3  # 1 [CLS] and [2 SEP]
-
 
 def identity(x):
     return x
@@ -114,6 +112,8 @@ class FeverDataset(Dataset):
         with open(data_dir) as out:
             for line in out:
                 line = json.loads(line)
+                if not line['claim'] or not evidence_text(line):
+                    continue
                 self._dataset.append(line)
 
     def filter_dataset(self, labels: Set[AnyStr]):
@@ -122,7 +122,6 @@ class FeverDataset(Dataset):
         :param labels: A list of valid labels
         """
         self._dataset = [ex for ex in self._dataset if ex['label'] in labels]
-
 
     def __len__(self):
         return len(self._dataset)
@@ -151,12 +150,13 @@ def evidence_text(instance):
 
 
 def collate_fever(instances: List[Dict], tokenizer: PreTrainedTokenizer, device='cuda') -> List[torch.Tensor]:
+    token_ids = [tokenizer.encode(_x['claim'], evidence_text(_x)) for _x in instances]
+    # the legth limit with the encode method does not work with the roberta tokenizer
+    batch_max_len = min(512, max([len(_s) for _s in token_ids]))
 
-    token_ids = [tokenizer.encode(_x['claim'], evidence_text(_x), max_length=509) for _x in instances]
-    batch_max_len = max([len(_s) for _s in token_ids])
-
-    padded_ids_tensor = torch.tensor([_s + [tokenizer.pad_token_id] * (batch_max_len - len(_s))
+    padded_ids_tensor = torch.tensor([_s[:batch_max_len] + [tokenizer.pad_token_id] * (batch_max_len - min(512, len(_s)))
                                       for _s in token_ids]).to(device)
+
     labels_tensor = torch.tensor([_LABELS[_x['label']] for _x in instances], dtype=torch.long).to(device)
 
     return [padded_ids_tensor, labels_tensor]
