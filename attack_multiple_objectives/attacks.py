@@ -123,16 +123,18 @@ def tailor_first(averaged_grad, embedding_matrix, trigger_token_ids, reverse_los
     return neg_dir_dot_grad
 
 
-def hotflip_attack_all(averaged_grad, embedding_matrix, averaged_grad_nli, embedding_matrix_nli, averaged_grad_ppl, embedding_matrix_ppl, nli_w=0.2, fc_w=0.2, ppl_w=0.6,
+def hotflip_attack_all(averaged_grad, embedding_matrix,
+                       averaged_grad_nli, embedding_matrix_nli,
+                       averaged_grad_ppl, embedding_matrix_ppl,
+                       nli_w=0.0, fc_w=1, ppl_w=0.0,
                        num_candidates=1):
-    """
-    Optimize for fc target class negative direction and nli negation - positive.
-    """
-    neg_dir_dot_grad = tailor_simple(averaged_grad, embedding_matrix, increase_loss=False)
-    neg_dir_dot_grad_nli = tailor_simple(averaged_grad_nli, embedding_matrix_nli, increase_loss=False)
-    neg_dir_dot_grad_ppl = tailor_simple(averaged_grad_ppl, embedding_matrix_ppl, increase_loss=False)
-
-    neg_dir_dot_grad = fc_w * neg_dir_dot_grad + nli_w * neg_dir_dot_grad_nli + ppl_w * neg_dir_dot_grad_ppl
+    neg_dir_dot_grad = fc_w * tailor_simple(averaged_grad, embedding_matrix, increase_loss=False)
+    if nli_w != 0:
+        neg_dir_dot_grad_nli = tailor_simple(averaged_grad_nli, embedding_matrix_nli, increase_loss=False) # decrease loss for entailment
+        neg_dir_dot_grad += nli_w * neg_dir_dot_grad_nli
+    if ppl_w != 0:
+        neg_dir_dot_grad_ppl = tailor_simple(averaged_grad_ppl, embedding_matrix_ppl, increase_loss=False) # decrease loss real example
+        neg_dir_dot_grad += ppl_w * neg_dir_dot_grad_ppl
 
     if num_candidates > 1:  # get top k options
         _, best_k_ids = torch.topk(neg_dir_dot_grad, num_candidates, dim=2)
