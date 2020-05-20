@@ -27,14 +27,21 @@ if __name__ == "__main__":
         with open(file) as out:
             for doc in out:
                 doc = json.loads(doc)
-                doc_lines = [doc_line.split('\t')[1] for doc_line in doc['lines'].split('\n')
-                             if len(doc_line.split('\t')) > 1]
+                doc_lines = {}
+                for doc_line in doc['lines'].split('\n'):
+                    cols = doc_line.split('\t')
+                    if len(cols) > 1:
+                        try:
+                            doc_lines[int(cols[0])] = cols[1]
+                        except:
+                            # print(cols)
+                            pass
                 wiki_docs[doc['id']] = doc_lines
 
     for old_dir, new_dir in zip(args.dataset_dirs, args.output_paths):
         output_writer = open(new_dir, 'w')
         with open(old_dir) as out:
-            for line in tqdm(out, desc='Processing dataset...', leave=True):
+            for line in tqdm(out, desc=f'Processing dataset...{old_dir}', leave=True):
                 line = json.loads(line)
                 if line['label'] == 'NOT ENOUGH INFO':
                     continue
@@ -43,7 +50,9 @@ if __name__ == "__main__":
                     for ann_sent in ann:  # [Annotation ID, Evidence ID, Wikipedia URL, sentence ID]
                         wiki_url = unicodedata.normalize('NFC', ann_sent[2])
                         # [Wikipedia URL, sentence ID, sentence]
-                        sentences.append([wiki_url, ann_sent[3], wiki_docs[wiki_url][ann_sent[3]]])
+                        sentence = wiki_docs[wiki_url].get(ann_sent[3], '')
+                        if sentence != '':
+                            sentences.append([wiki_url, ann_sent[3], sentence])
 
                     nli_line = line.copy()
                     nli_line['evidence'] = sentences
