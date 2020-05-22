@@ -1,14 +1,25 @@
 import argparse
-import random
+import torch
 
 import pandas as pd
 from transformers import BertTokenizer
-from transformers import pipeline
+from functools import partial
 
 from attack_multiple_objectives import triggers_utils
-from attack_multiple_objectives.attack_fc_nli_trans import get_fc_model, get_nli_model, get_ppl_model
-from attack_multiple_objectives.nli_utils import NLI_DIC_LABELS
+from attack_multiple_objectives.attack_fc_nli_trans import get_fc_model, get_checkpoint_transformer, mnli_classes
 from builders.data_loader import BucketBatchSampler, sort_key, FeverDataset
+from transformers import RobertaTokenizer, RobertaForMaskedLM
+
+
+def get_ppl_model(device='cpu'):
+    model = RobertaForMaskedLM.from_pretrained('roberta-base').to(device)
+    model.train()
+
+    triggers_utils.add_hooks_bert(model)  # Adds a hook to get the embedding gradients
+    embedding_weight = triggers_utils.get_embedding_weight_bert(model)
+
+    return model, embedding_weight
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -23,53 +34,51 @@ if __name__ == "__main__":
     parser.add_argument("--labels", help="2 labels if NOT ENOUGH INFO excluded, 3 otherwise", type=int, default=3)
     parser.add_argument("--nli_model_path", help="Path to the fine-tuned NLI model", default='snli_transformer',
                         type=str)
+    parser.add_argument("--fc_model_type", help="Type of pretrained model being loaded", default='bert',
+                        choices=['bert', 'roberta'])
+
     args = parser.parse_args()
 
-    device = 0 if args.gpu else -1
+    device = torch.device("cuda") if args.gpu else torch.device("cpu")
 
     # load models
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-    nlp = pipeline('fill-mask', model='bert-base-uncased', device=device, topk=args.beam_size)
+    if args.fc_model_type == 'bert':
+        tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    else:
+        tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
 
-    nli_model, nli_model_ew, collate_nli = get_nli_model(args.nli_model_path, tokenizer, device)
-    fc_model, fc_model_ew, collate_fc = get_fc_model(args.model_path, tokenizer, args.labels, device)
-    ppl_model, ppl_ew = get_ppl_model(device)
+    fc_model, fc_model_ew, collate_fc = get_fc_model(args.model_path, tokenizer, args.labels, device,
+                                                     type=args.fc_model_type)
 
     test = FeverDataset(args.dataset)
-    # Subsample the dataset
-    test._dataset = random.sample([i for i in test._dataset if i['label'] == args.attack_class], 200)
+    test._dataset = [i for i in test._dataset if i['label'] == args.attack_class]
     test_dl = BucketBatchSampler(batch_size=args.batch_size, sort_key=sort_key, dataset=test,
                                  collate_fn=collate_fc)
 
+    nli_model, nli_model_ew, _, _ = \
+        get_checkpoint_transformer("roberta-large-mnli", device, hook_embeddings=True, model_type='roberta')
+    nli_batch_func = partial(triggers_utils.evaluate_batch_nli, tokenizer=tokenizer)
+
+
+    ppl_batch_func = partial(triggers_utils.evaluate_batch_ppl, tokenizer=tokenizer)
+    ppl_model = get_ppl_model(device)
+
     triggers = pd.read_csv(args.triggers_file, sep='\t', header=None)
-    triggers.sort_values(by=2, axis=0, ascending=False)
-    triggers.columns = ['trigger', 'count', 'acc', 'nli']
+    triggers.columns = ['trigger', 'count']
 
-    print("Getting original performance...")
-    orig_acc = triggers_utils.eval_model(fc_model, test_dl, labels_num=args.labels)
+    orig_acc = triggers_utils.eval_fc(fc_model, test_dl, labels_num=args.labels)
     print(f'Original accuracy: {orig_acc}', flush=True)
-
-    # TODO add the GLUE functionality here
-
+    orig_nli = triggers_utils.eval_nli(nli_model, test_dl, tokenizer, trigger_token_ids=None)
+    print(f'Original nli class distrib: {orig_nli}', flush=True)
+    ppl_orig, ppl_std = triggers_utils.eval_ppl(ppl_model, test_dl, tokenizer, trigger_token_ids=None)
+    print(f'Original ppl: {ppl_orig}{ppl_std}', flush=True)
     with open(args.triggers_file + '_results', 'w') as f:
         for i, row in triggers.iterrows():
             row = row.to_dict()
             trigger = row['trigger']
             trigger_token_ids = tokenizer.convert_tokens_to_ids(trigger.split(" "))
-            acc = triggers_utils.eval_model(fc_model, test_dl, trigger_token_ids, labels_num=args.labels)
-
-            pred_dict_orig, pred_dict, prob_entail = triggers_utils.eval_nli(nli_model, test_dl, tokenizer,
-                                                                             trigger_token_ids)
-
-            ppl_loss_orig = triggers_utils.eval_ppl(ppl_model, test_dl, tokenizer)
-            ppl_loss = triggers_utils.eval_ppl(ppl_model, test_dl, tokenizer, trigger_token_ids)
-
-            delta_ppl = ppl_loss - ppl_loss_orig  # the higher, the better
-            delta_acc = orig_acc - acc  # the higher, the better
-            all_instances = sum([v for _, v in pred_dict_orig.items()])
-            delta_ent = (pred_dict_orig[NLI_DIC_LABELS['entailment']] - pred_dict[NLI_DIC_LABELS['entailment']])
-            delta_neutr = (pred_dict_orig[NLI_DIC_LABELS['neutral']] - pred_dict[NLI_DIC_LABELS['neutral']])
-            delta_neg = (pred_dict_orig[NLI_DIC_LABELS['contradiction']] - pred_dict[NLI_DIC_LABELS['contradiction']])
-
-            f.write(f"{trigger}\t{delta_acc}\t{delta_ent}\t{delta_neutr}\t{delta_neg}\t{prob_entail}\t{delta_ppl}\n")
+            acc = triggers_utils.eval_fc(fc_model, test_dl, trigger_token_ids, labels_num=args.labels)
+            pred_dict = triggers_utils.eval_nli(nli_model, test_dl, tokenizer, trigger_token_ids)
+            ppl_loss, ppl_std = triggers_utils.eval_ppl(ppl_model, test_dl, tokenizer, trigger_token_ids)
+            f.write(f"{trigger}\t{acc}\t{mnli_classes['entailment']}\t{ppl_loss}({ppl_std})\n")
             f.flush()
