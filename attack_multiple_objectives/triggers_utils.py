@@ -276,6 +276,8 @@ def get_loss_per_candidate_bert(index, model, batch, trigger_token_ids, cand_tri
         trigger_token_ids_one_replaced[index] = cand_trigger_token_ids[index][cand_id]  # replace one token
         if not any(_s.isalpha() for _s in token):
             loss = -100.0
+        elif not (token[0].startswith('Ġ') or token[0].istitle()):
+            loss = -100.0
         else:
             loss, logits, labels = eval_batch_f(model, batch, trigger_token_ids_one_replaced)
             loss = loss.cpu().detach().numpy()
