@@ -14,11 +14,7 @@ from transformers import RobertaTokenizer, RobertaForMaskedLM
 def get_ppl_model(device='cpu'):
     model = RobertaForMaskedLM.from_pretrained('roberta-base').to(device)
     model.train()
-
-    triggers_utils.add_hooks_bert(model)  # Adds a hook to get the embedding gradients
-    embedding_weight = triggers_utils.get_embedding_weight_bert(model)
-
-    return model, embedding_weight
+    return model
 
 
 if __name__ == "__main__":
@@ -71,7 +67,7 @@ if __name__ == "__main__":
     orig_nli = triggers_utils.eval_nli(nli_model, test_dl, tokenizer, trigger_token_ids=None)
     print(f'Original nli class distrib: {orig_nli}', flush=True)
     ppl_orig, ppl_std = triggers_utils.eval_ppl(ppl_model, test_dl, tokenizer, trigger_token_ids=None)
-    print(f'Original ppl: {ppl_orig}{ppl_std}', flush=True)
+    print(f'Original ppl: {ppl_orig} {ppl_std}', flush=True)
     with open(args.triggers_file + '_results', 'w') as f:
         for i, row in triggers.iterrows():
             row = row.to_dict()
