@@ -42,7 +42,7 @@ if __name__ == "__main__":
 
     triggers = pd.read_csv(args.triggers_file, sep='\t', header=None)
     # triggers.sort_values(by=2, axis=0, ascending=False)
-    triggers.columns = ['trigger', 'count']
+    triggers.columns = ['trigger','score', 'count']
 
     print("Getting original performance...")
     orig_acc = triggers_utils.eval_fc(fc_model, test_dl, labels_num=args.labels)
