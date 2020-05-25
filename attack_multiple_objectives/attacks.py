@@ -90,6 +90,7 @@ def tailor_simple(averaged_grad, embedding_matrix, increase_loss=False):
     if not increase_loss:
         gradient_dot_embedding_matrix *= -1  # lower versus increase the class probability.
 
+    gradient_dot_embedding_matrix = F.normalize(gradient_dot_embedding_matrix, p=2, dim=1)
     return gradient_dot_embedding_matrix
 
 

@@ -4,6 +4,7 @@ from functools import partial
 from operator import itemgetter
 from typing import List
 from typing import Tuple
+import torch.nn.functional as F
 
 import numpy
 import torch
@@ -103,11 +104,11 @@ def evaluate_batch_gpt(model: torch.nn.Module, batch: Tuple, trigger_token_ids: 
         instance = instance.detach().cpu().numpy().tolist()
         # get the claim including SEP token, add triggger and append again claim but without the CLS token
         # CLS, trigger, claim tokens
-        sep_index = instance.index(tokenizer.sep_token_id)
+        # sep_index = instance.index(tokenizer.sep_token_id)
         claim_tokens = instance[0:1] + trigger_token_ids + instance[1:]
         input_ids_claim.append(claim_tokens[:512])
         # pad batch
-        max_len = max([len(i) for i in input_ids_claim])
+        max_len = min(max([len(i) for i in input_ids_claim]), 512)
         input_ids_claim = [instance + [tokenizer.pad_token_id] * (max_len - len(instance))
                            for instance in input_ids_claim]
         input_ids = torch.tensor(input_ids_claim).cuda()
@@ -123,7 +124,7 @@ def evaluate_batch_gpt(model: torch.nn.Module, batch: Tuple, trigger_token_ids: 
 def evaluate_batch_nli(model: torch.nn.Module, batch: Tuple, trigger_token_ids: List = None, tokenizer=None):
     # Attach attack_multiple_objectives if present
     input_ids = batch[0]
-    loss_f = torch.nn.CrossEntropyLoss()
+    loss_f = torch.nn.MSELoss()
     input_ids_claim = []
 
     if trigger_token_ids == None:
@@ -145,7 +146,7 @@ def evaluate_batch_nli(model: torch.nn.Module, batch: Tuple, trigger_token_ids: 
     # eval w.r.t. entailment - this is the target class in the NLI case,
     # i.e. the one we want to minimize the loss for.
     logits_val = model(input_ids, attention_mask=input_ids != tokenizer.pad_token_id)[0]
-    loss = loss_f(logits_val, batch[1].long())
+    loss = loss_f(logits_val, batch[1].float().unsqueeze(1))
 
     return loss, logits_val, batch[1].long()
 
@@ -174,6 +175,7 @@ def get_average_grad_transformer(model, batch, trigger_token_ids, batch_func, ta
 
     # average grad across batch size, result only makes sense for trigger tokens at the front
     averaged_grad = torch.sum(grads, dim=0)
+    averaged_grad = F.normalize(averaged_grad, p=2, dim=1)
     # start from position 1 as at 0 is the CLS token
     averaged_grad = averaged_grad[1:len(trigger_token_ids) + 1]  # return just trigger grads
     return averaged_grad
@@ -192,7 +194,7 @@ def get_loss_per_candidate(model, model_nli, gpt_model, batch, trigger_token_ids
     loss_per_candidate = [(_t, _s * fc_w) for _t, _s in loss_per_candidate]
 
     if nli_w > 0.0:
-        batch[1] = int(NLI_DIC_LABELS['contradiction']) * torch.ones_like(batch[1]).cuda()
+        batch[1] = 0 * torch.ones_like(batch[1]).cuda()
         nli_loss_per_candidate = get_loss_per_candidate_bert(idx, model_nli, batch, trigger_token_ids,
                                                              cand_trigger_token_ids,
                                                              nli_batch_func, tokenizer)
@@ -206,7 +208,6 @@ def get_loss_per_candidate(model, model_nli, gpt_model, batch, trigger_token_ids
                                                              gpt_batch_func, tokenizer)
         loss_per_candidate = [(_t, _s + gpt_loss_per_candidate[i][1] * ppl_w)
                               for i, (_t, _s) in enumerate(loss_per_candidate)]
-        loss_per_candidate += ppl_w * gpt_loss_per_candidate
         batch[1] = original_labels.detach()
 
     return loss_per_candidate
@@ -230,7 +231,7 @@ def get_best_candidates_all_obj(model, model_nli, gpt_model, batch, trigger_toke
 
             loss_per_candidate.extend(loss_)
         top_candidates = heapq.nlargest(beam_size, loss_per_candidate, key=itemgetter(1))
-    return max(top_candidates, key=itemgetter(1))[0]
+    return sorted(top_candidates, key=itemgetter(1), reverse=True)[:beam_size]
 
 
 def get_best_candidates_bert(model, batch, trigger_token_ids, cand_trigger_token_ids, tokenizer, beam_size=1):
@@ -276,7 +277,7 @@ def get_loss_per_candidate_bert(index, model, batch, trigger_token_ids, cand_tri
         trigger_token_ids_one_replaced[index] = cand_trigger_token_ids[index][cand_id]  # replace one token
         if not any(_s.isalpha() for _s in token):
             loss = -100.0
-        elif not (token[0].startswith('Ġ') or token[0].istitle()):
+        elif not (token[0].startswith('Ġ') or token[0][0].isupper()):
             loss = -100.0
         else:
             loss, logits, labels = eval_batch_f(model, batch, trigger_token_ids_one_replaced)
@@ -316,18 +317,10 @@ def eval_ppl(model: torch.nn.Module, test_dl: BatchSampler, tokenizer, trigger_t
 
 
 def eval_nli(model: torch.nn.Module, test_dl: BatchSampler, tokenizer, trigger_token_ids: List = None, labels_num=3):
-    softmax = torch.nn.Softmax(dim=1)
     model.eval()
     with torch.no_grad():
         logits_all = []
         for batch in tqdm(test_dl, desc="Evaluation"):
             loss, logits_val, _ = evaluate_batch_nli(model, batch, trigger_token_ids, tokenizer)
-            logits_all += softmax(logits_val).detach().cpu().numpy().tolist()
-
-        # for each class, get number of instances
-        prediction = numpy.argmax(numpy.asarray(logits_all).reshape(-1, labels_num), axis=-1)
-        unique, counts = numpy.unique(prediction, return_counts=True)
-        pred_dict = dict(zip(unique, counts))
-        pred_dict = {int(k): int(v) for k, v in pred_dict.items()}
-
-    return pred_dict
+            logits_all += logits_val.detach().squeeze().cpu().numpy().tolist()
+    return logits_all
