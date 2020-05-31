@@ -51,4 +51,4 @@ if __name__ == "__main__":
                         output_writer.write(json.dumps(nli_line)+'\n')
         output_writer.close()
 
-#python scripts/aggregate_papelo_nei.py --dataset_dirs fever2018/data/fever/test_nei.sentences.p5.s5.jsonl fever2018/data/fever/dev_nei.sentences.p5.s5.jsonl fever2018/data/fever/train_nei.sentences.p5.s5.jsonl --wiki_dir data/wiki-pages/wiki-pages/ --output_paths data/test_nei_nli.jsonl data/dev_nei_nli.jsonl data/train_nei_nli.jsonl
+#python scripts/aggregate_papelo_nei.py --dataset_dirs data/fever/train_nei.sentences.p5.s5.jsonl --wiki_dir data/wiki-pages/wiki-pages/ --output_paths data/adv_nei_nli.jsonl
