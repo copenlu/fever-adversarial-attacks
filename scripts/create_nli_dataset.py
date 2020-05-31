@@ -48,16 +48,24 @@ if __name__ == "__main__":
                 for ann in line['evidence']:
                     sentences = []
                     for ann_sent in ann:  # [Annotation ID, Evidence ID, Wikipedia URL, sentence ID]
-                        wiki_url = unicodedata.normalize('NFC', ann_sent[2])
-                        # [Wikipedia URL, sentence ID, sentence]
-                        sentence = wiki_docs[wiki_url].get(ann_sent[3], '')
-                        if sentence != '':
-                            sentences.append([wiki_url, ann_sent[3], sentence])
+                        if ann_sent[2]:
+                            wiki_url = unicodedata.normalize('NFC', ann_sent[2])
+                            # [Wikipedia URL, sentence ID, sentence]
+                            if wiki_url in wiki_docs:
+                                sentence = wiki_docs[wiki_url].get(ann_sent[3], '')
+                                if sentence != '':
+                                    sentences.append([wiki_url, ann_sent[3], sentence])
+                            else:
+                                sentences = []
+                                break
 
+                    if len(sentences) == 0:
+                        continue
                     nli_line = line.copy()
                     nli_line['evidence'] = sentences
                     output_writer.write(json.dumps(nli_line)+'\n')
         output_writer.close()
 
 
-# python scripts/create_nli_dataset.py --dataset_dirs data/paper_dev.jsonl data/paper_test.jsonl --wiki_dir data/wiki-pages/wiki-pages/ --output_paths data/dev_nli.jsonl data/test_nli.jsonl
+#python scripts/create_nli_dataset.py --dataset_dirs data/paper_dev.jsonl data/paper_test.jsonl --wiki_dir data/wiki-pages/wiki-pages/ --output_paths data/dev_nli.jsonl data/test_nli.jsonl
+#python scripts/create_nli_dataset.py --dataset_dirs claims_adversarial_sr.jsonl --wiki_dir data/wiki-pages/wiki-pages/ --output_paths data/adv_sr_nli.jsonl
