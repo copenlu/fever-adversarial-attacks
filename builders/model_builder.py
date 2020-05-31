@@ -3,7 +3,6 @@ import torch
 from tqdm import tqdm
 import numpy as np
 from torch.nn import functional as F
-from torch.nn import init
 from transformers import PreTrainedTokenizer
 from argparse import Namespace
 
@@ -94,55 +93,6 @@ def get_embeddings(embedding_dim: int, embedding_dir: str, tokenizer: PreTrained
         embedding_matrix[id] = word_vector
 
     return torch.nn.Parameter(torch.tensor(embedding_matrix, dtype=torch.float), requires_grad=True)
-
-
-class NLILSTM(torch.nn.Module):
-
-    def __init__(self, tokenizer: PreTrainedTokenizer, args: Namespace, n_labels: int):
-        super(NLILSTM, self).__init__()
-        self.args = args
-
-        self.embedding = torch.nn.Embedding(len(tokenizer), args.embedding_dim)
-        self.embedding.weight = get_embeddings(args.embedding_dim, args.embedding_dir, tokenizer)
-
-        self.enc_p = torch.nn.LSTM(input_size=args.embedding_dim, hidden_size=args.hidden_lstm,
-                             num_layers=args.num_layers, bidirectional=True, dropout=args.dropout)
-
-        self.dropout = torch.nn.Dropout(args.dropout)
-
-        self.relu = torch.nn.ReLU()
-
-        self.hidden_layers = torch.nn.ModuleList()
-        self.hidden_layers.append(torch.nn.Linear(args.hidden_lstm, args.hidden_sizes[0]))
-
-        for i in range(1, len(args.hidden_sizes)):
-            self.hidden_layers.append(torch.nn.Linear(args.hidden_sizes[i - 1], args.hidden_sizes[i]))
-
-        output_units = n_labels if n_labels > 2 else 1
-        self.hidden_layers.append(torch.nn.Linear(args.hidden_sizes[-1], output_units))
-
-        for _hl in self.hidden_layers:
-            init.xavier_uniform_(_hl.weight)
-
-        self.softmax = torch.nn.LogSoftmax(dim=1)
-
-        for name, param in self.enc_p.named_parameters():
-            if 'bias' in name:
-                init.constant_(param, 0.0)
-            elif 'weight' in name:
-                init.xavier_uniform_(param)
-
-    def forward(self, input):
-        embedded = self.dropout(self.embedding(input))
-
-        embedded_premise = embedded.permute(1, 0, 2)
-        _, (h, c) = self.enc_p(embedded_premise)
-        output = h[-1].squeeze()
-
-        for hidden_layer in self.hidden_layers:
-            output = hidden_layer(output)
-
-        return output
 
 
 class NLICNN(torch.nn.Module):
