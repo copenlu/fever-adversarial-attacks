@@ -5,6 +5,7 @@ embeddings, it computes the optimal token replacements. This code runs on CPU.
 import numpy
 import torch
 import torch.nn.functional as F
+import ipdb
 
 
 def hotflip_attack(averaged_grad, embedding_matrix, trigger_token_ids,
@@ -152,6 +153,22 @@ def hotflip_attack_nli(averaged_grad, embedding_matrix, averaged_grad_nli, embed
     neg_dir_dot_grad = tailor_simple(averaged_grad, embedding_matrix, increase_loss=False)
     neg_dir_dot_grad_nli = tailor_simple(averaged_grad_nli, embedding_matrix_nli, increase_loss=False)
     neg_dir_dot_grad = fc_w * neg_dir_dot_grad + nli_w * neg_dir_dot_grad_nli
+
+    if num_candidates > 1:  # get top k options
+        _, best_k_ids = torch.topk(neg_dir_dot_grad, num_candidates, dim=2)
+        return best_k_ids.detach().cpu().numpy()[0]
+    _, best_at_each_step = neg_dir_dot_grad.max(2)
+    return best_at_each_step[0].detach().cpu().numpy()
+
+
+def hotflip_attack_nli_lm(averaged_grad, embedding_matrix, averaged_grad_nli, embedding_matrix_nli, lm_probabilities, nli_w=0.4, fc_w=0.6,
+                       num_candidates=1):
+    """
+    Optimize for fc target class negative direction and nli negation - positive.
+    """
+    neg_dir_dot_grad = tailor_simple(averaged_grad, embedding_matrix, increase_loss=False)
+    neg_dir_dot_grad_nli = tailor_simple(averaged_grad_nli, embedding_matrix_nli, increase_loss=True)
+    neg_dir_dot_grad = fc_w * neg_dir_dot_grad + nli_w * neg_dir_dot_grad_nli + lm_probabilities
 
     if num_candidates > 1:  # get top k options
         _, best_k_ids = torch.topk(neg_dir_dot_grad, num_candidates, dim=2)

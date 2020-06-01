@@ -5,6 +5,7 @@ from operator import itemgetter
 from typing import List
 from typing import Tuple
 import torch.nn.functional as F
+import numpy as np
 
 import numpy
 import torch
@@ -46,6 +47,15 @@ def add_hooks_bert(model, model_type='bert'):
         model.roberta.embeddings.word_embeddings.weight.requires_grad = True
         model.roberta.embeddings.word_embeddings.register_backward_hook(extract_grad_hook)
 
+def get_mlm_probabilities(model: torch.nn.Module, batch: Tuple, mask_token_idx: int, trigger_token_len: int = 1):
+    input_ids = batch[0]
+    mask_tensor = torch.cuda.LongTensor([mask_token_idx]*trigger_token_len)
+    mask_tensor = mask_tensor.repeat(batch[0].shape[0], 1)
+    input_ids = torch.cat([input_ids[:, 0].unsqueeze(1), mask_tensor, input_ids[:, 1:]], 1)
+    logits = model(input_ids)[0]
+    logits = logits[:,1:trigger_token_len+1,:].sum(dim=0)
+    # Just return the trigger probabilities
+    return torch.nn.Softmax()(logits).cpu()
 
 def evaluate_batch_bert(model: torch.nn.Module, batch: Tuple, trigger_token_ids: List = None, reduction='mean'):
     # Attach attack_multiple_objectives if present
@@ -324,3 +334,14 @@ def eval_nli(model: torch.nn.Module, test_dl: BatchSampler, tokenizer, trigger_t
             loss, logits_val, _ = evaluate_batch_nli(model, batch, trigger_token_ids, tokenizer)
             logits_all += logits_val.detach().squeeze().cpu().numpy().tolist()
     return logits_all
+
+def perplexity(logits, targets):
+    """
+    Calculates the perplexity of a sentence based on the output of a language model
+    :param logits: The language model output
+    :param targets: The expected output tokens
+    :return: The perplexity score (float)
+    """
+    loss_fn = torch.nn.CrossEntropyLoss()
+    loss = loss_fn(logits, targets)
+    return np.exp(loss.cpu().item())
