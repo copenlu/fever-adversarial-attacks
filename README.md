@@ -46,10 +46,11 @@ and merge the outputs of the system for the NEI class with the gold evidence sen
 `python scripts/merge_nli_files.py --sr_file data/train_sr_nli.jsonl --nei_file data/train_nei_nli.jsonl --output_path data/train_nli.jsonl`
 
 # Builder Models
-`builders/train_transformer.py, builders/train_rnn_cnn.py`
-
-python builders/train_transformer.py --gpu --lr 2e-5 --model_path fever_roberta_2e5 --batch_size 8 --type roberta
+We train a RoBERTa model on the data prepared in the previous step which is used for the adversarial attacks <br>
+`python builders/train_transformer.py --gpu --lr 2e-5 --model_path fever_roberta_2e5 --batch_size 8 --type roberta`
 
 # Trigger Generation
 
-python attack_multiple_objectives/eval_triggers.py --gpu --model_path fever_roberta_2e5 --fc_model_type roberta --batch_size 4 --labels 3 --triggers_file /image/image-copenlu/attack_results_new/fc6_nli4_ppl0_SUPPORTS_to_REFUTES_1_triggers.tsv --attack_class SUPPORTS
+`python attack_multiple_objectives/eval_triggers.py --gpu --model_path fever_roberta_2e5 --fc_model_type roberta --batch_size 4 --labels 3 --triggers_file /image/image-copenlu/attack_results_new/fc6_nli4_ppl0_SUPPORTS_to_REFUTES_1_triggers.tsv --attack_class SUPPORTS`
+
+# Conditional Adversarial Claim Generation

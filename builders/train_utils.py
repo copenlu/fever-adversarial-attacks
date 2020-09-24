@@ -1,15 +1,17 @@
+"""Training utilities."""
 import os
-import torch
-from tqdm import tqdm
-import numpy as np
-from torch.nn import functional as F
-from transformers import PreTrainedTokenizer
 from argparse import Namespace
+
+import numpy as np
+import torch
+from torch.nn import functional as F
+from tqdm import tqdm
+from transformers import PreTrainedTokenizer
 
 _glove_path = "glove.6B.{}d.txt".format
 
 
-class EarlyStopping(object):
+class EarlyStopping:
     def __init__(self, mode='min', min_delta=0, patience=10, percentage=False):
         self.mode = mode
         self.min_delta = min_delta
@@ -52,10 +54,11 @@ class EarlyStopping(object):
                 self.is_better = lambda a, best: a > best + min_delta
         else:
             if mode == 'min':
-                self.is_better = lambda a, best: a < best - (best * min_delta / 100)
+                self.is_better = lambda a, best: a < best - (
+                            best * min_delta / 100)
             if mode == 'max':
                 self.is_better = lambda a, best: a > best + (
-                            best * min_delta / 100)
+                        best * min_delta / 100)
 
 
 def _get_glove_embeddings(embedding_dim: int, glove_dir: str):
@@ -63,7 +66,8 @@ def _get_glove_embeddings(embedding_dim: int, glove_dir: str):
     word_vectors = []
 
     with open(os.path.join(glove_dir, _glove_path(embedding_dim))) as fp:
-        for line in tqdm(fp.readlines(), desc=f'Loading Glove embeddings {_glove_path}'):
+        for line in tqdm(fp.readlines(),
+                         desc=f'Loading Glove embeddings {_glove_path}'):
             line = line.split(" ")
 
             word = line[0]
@@ -75,15 +79,17 @@ def _get_glove_embeddings(embedding_dim: int, glove_dir: str):
     return word_to_index, word_vectors
 
 
-def get_embeddings(embedding_dim: int, embedding_dir: str, tokenizer: PreTrainedTokenizer):
+def get_embeddings(embedding_dim: int, embedding_dir: str,
+                   tokenizer: PreTrainedTokenizer):
     """
     :return: a tensor with the embedding matrix - ids of words are from vocab
     """
-    word_to_index, word_vectors = _get_glove_embeddings(embedding_dim, embedding_dir)
+    word_to_index, word_vectors = _get_glove_embeddings(embedding_dim,
+                                                        embedding_dir)
 
     embedding_matrix = np.zeros((len(tokenizer), embedding_dim))
 
-    for id in range(0, max(tokenizer.vocab.values())+1):
+    for id in range(0, max(tokenizer.vocab.values()) + 1):
         word = tokenizer.ids_to_tokens[id]
         if word not in word_to_index:
             word_vector = np.random.rand(embedding_dim)
@@ -92,11 +98,13 @@ def get_embeddings(embedding_dim: int, embedding_dir: str, tokenizer: PreTrained
 
         embedding_matrix[id] = word_vector
 
-    return torch.nn.Parameter(torch.tensor(embedding_matrix, dtype=torch.float), requires_grad=True)
+    return torch.nn.Parameter(torch.tensor(embedding_matrix, dtype=torch.float),
+                              requires_grad=True)
 
 
 class NLICNN(torch.nn.Module):
-    def __init__(self, tokenizer: PreTrainedTokenizer, args: Namespace, n_labels: int):
+    def __init__(self, tokenizer: PreTrainedTokenizer, args: Namespace,
+                 n_labels: int):
         super(NLICNN, self).__init__()
         self.args = args
 
@@ -104,20 +112,26 @@ class NLICNN(torch.nn.Module):
 
         self.dropout = torch.nn.Dropout(args.dropout)
 
-        self.embedding.weight = get_embeddings(args.embedding_dim, args.embedding_dir, tokenizer)
+        self.embedding.weight = get_embeddings(args.embedding_dim,
+                                               args.embedding_dir, tokenizer)
 
-        self.conv_layers = torch.nn.ModuleList([torch.nn.Conv2d(args.in_channels, args.out_channels,
-                                                    (kernel_height, args.embedding_dim),
-                                                    args.stride, args.padding)
-                            for kernel_height in args.kernel_heights])
+        self.conv_layers = torch.nn.ModuleList(
+            [torch.nn.Conv2d(args.in_channels, args.out_channels,
+                             (kernel_height, args.embedding_dim),
+                             args.stride, args.padding)
+             for kernel_height in args.kernel_heights])
 
         output_units = n_labels if n_labels > 2 else 1
-        self.final = torch.nn.Linear(len(args.kernel_heights) * args.out_channels, output_units)
+        self.final = torch.nn.Linear(
+            len(args.kernel_heights) * args.out_channels, output_units)
 
     def conv_block(self, input, conv_layer):
-        conv_out = conv_layer(input)  # conv_out.size() = (batch_size, out_channels, dim, 1)
-        activation = F.relu(conv_out.squeeze(3))  # activation.size() = (batch_size, out_channels, dim1)
-        max_out = F.max_pool1d(activation, activation.size()[2]).squeeze(2)  # maxpool_out.size() = (batch_size, out_channels)
+        # conv_out.size() = (batch_size, out_channels, dim, 1)
+        conv_out = conv_layer(input)
+        # activation.size() = (batch_size, out_channels, dim1)
+        activation = F.relu(conv_out.squeeze(3))
+        # maxpool_out.size() = (batch_size, out_channels)
+        max_out = F.max_pool1d(activation, activation.size()[2]).squeeze(2)
 
         return max_out
 
@@ -128,7 +142,8 @@ class NLICNN(torch.nn.Module):
         # input.size() = (batch_size, 1, num_seq, embedding_length)
         input = self.dropout(input)
 
-        conv_out = [self.conv_block(input, self.conv_layers[i]) for i in range(len(self.conv_layers))]
+        conv_out = [self.conv_block(input, self.conv_layers[i]) for i in
+                    range(len(self.conv_layers))]
         all_out = torch.cat(conv_out, 1)
         # all_out.size() = (batch_size, num_kernels*out_channels)
         fc_in = self.dropout(all_out)
@@ -136,4 +151,3 @@ class NLICNN(torch.nn.Module):
         output = self.final(fc_in)
 
         return output
-
