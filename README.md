@@ -61,3 +61,32 @@ The code is based on the code of the [Universal Adversarial Attacks](https://git
 `python attack_multiple_objectives/eval_triggers.py --gpu --model_path fever_roberta_2e5 --fc_model_type roberta --batch_size 4 --labels 3 --triggers_file data/fc10_nli0_ppl0_SUPPORTS_to_REFUTES_1_triggers.tsv --attack_class SUPPORTS`
 
 # Conditional Adversarial Claim Generation
+
+To generate adversarial claims, first train a GPT-2 model for the particular types of claims you wish to generate (SUPPORTS, REFUTES, or NOT ENOUGH INFO). The following is an example of how to create a model which generates SUPPORTS claims.
+```bash
+python train_gpt2_model.py \
+  --dataset_loc data/train_nli.jsonl \
+  --val_dataset data/dev_nli.jsonl \
+  --train_pct 0.9 \
+  --n_gpu 1 \
+  --n_epochs 20 \
+  --seed 1000 \
+  --model_dir gpt2_models/1_candidate_4_random_supports \
+  --batch_size 4 \
+  --lr 0.00003 \
+  --target_class "SUPPORTS" \
+  --run_name 1c_4e_supports \
+  --tags "gpt2 training supports"
+```
+
+You can then generate adversarial examples via the following. You will need to have a trained BERT model on SNLI as the `nli_model` parameter.
+
+```bash
+python generate_gpt2_sentences.py \
+  --dataset_loc data/test_nli.jsonl  \
+  --model_loc gpt2_models/1_candidate_4_random_supports/model.pth \
+  --triggers_file data/fc10_nli0_ppl0_SUPPORTS_to_REFUTES_1_triggers.tsv \
+  --output_file gpt2_models/1_candidate_4_random_supports/generation_s_to_r.txt \
+  --target_class SUPPORTS \
+  --nli_model transformer_snli_2e5_1
+```
