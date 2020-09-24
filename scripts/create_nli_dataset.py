@@ -1,6 +1,7 @@
 """
-Create FEVER NLI dataset, where for each line in the original FEVER dataset with N number of evidence annotations,
-we create N instances with the original fields and evidence - list of sentences # [Wikipedia URL, sentence ID, sentence]
+Create FEVER NLI dataset, where for each line in the original FEVER dataset
+with N number of evidence annotations, we create N instances with the
+original fields and evidence - list of sentences # [Wikipedia URL, sentence ID, sentence]
 from the wiki dump.
 
 'NOT ENOUGH INFO' instances are discarded as they do not have any evidence annotations.
@@ -8,22 +9,29 @@ from the wiki dump.
 import argparse
 import json
 import os
-from tqdm import tqdm
 import unicodedata
+from tqdm import tqdm
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--wiki_dir", help="Path to the wiki pages dump", required=True, type=str)
-    parser.add_argument("--dataset_dirs", help="Paths to the dataset splits", required=True, type=str, nargs='+')
-    parser.add_argument("--output_paths", help="Paths to serialize the datasets", required=True, type=str, nargs='+')
+    parser.add_argument("--wiki_dir",
+                        help="Path to the wiki pages dump",
+                        required=True, type=str)
+    parser.add_argument("--dataset_dirs",
+                        help="Paths to the dataset splits",
+                        required=True, type=str, nargs='+')
+    parser.add_argument("--output_paths",
+                        help="Paths to serialize the datasets",
+                        required=True, type=str, nargs='+')
     args = parser.parse_args()
 
     wiki_docs = {}  # wiki_id: [wiki lines]
 
     for file in tqdm(os.scandir(args.wiki_dir), desc='Reading wiki pages...', leave=True):
         # {"id": "", "text": "", "lines": ""}
-        # "lines": "0\tThe following are the football -LRB- soccer -RRB- events of the year 1928 throughout the world .\n1\t"
+        # "lines": "0\tThe following are the football -LRB-
+        # soccer -RRB- events of the year 1928 throughout the world .\n1\t"
         with open(file) as out:
             for doc in out:
                 doc = json.loads(doc)
@@ -33,7 +41,7 @@ if __name__ == "__main__":
                     if len(cols) > 1:
                         try:
                             doc_lines[int(cols[0])] = cols[1]
-                        except:
+                        except Exception as e:
                             # print(cols)
                             pass
                 wiki_docs[doc['id']] = doc_lines
@@ -63,9 +71,5 @@ if __name__ == "__main__":
                         continue
                     nli_line = line.copy()
                     nli_line['evidence'] = sentences
-                    output_writer.write(json.dumps(nli_line)+'\n')
+                    output_writer.write(json.dumps(nli_line) + '\n')
         output_writer.close()
-
-
-#python scripts/create_nli_dataset.py --dataset_dirs data/paper_dev.jsonl data/paper_test.jsonl --wiki_dir data/wiki-pages/wiki-pages/ --output_paths data/dev_nli.jsonl data/test_nli.jsonl
-#python scripts/create_nli_dataset.py --dataset_dirs claims_adversarial_sr.jsonl --wiki_dir data/wiki-pages/wiki-pages/ --output_paths data/adv_sr_nli.jsonl
