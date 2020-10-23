@@ -90,3 +90,18 @@ python generate_gpt2_sentences.py \
   --target_class SUPPORTS \
   --nli_model transformer_snli_2e5_1
 ```
+
+# Final generated claims
+The final generated claims for both experiments can be found in `final_labelled_annotations.tsv`. The columns are as follows:
+ - original file: Internal filename which generated this claim. Files containing 'no_stsb' are for claims generated with triggers from the model trained without the stsb objective.
+ - idx: An internal index for the claim.
+ - claim: The generated claim.
+ - evidence: The evidence paired with the claim.
+ - triggers: The triggers used to generate the claim.
+ - semantically coherent: Claim quality score.
+ - label: The final adjudicated label of the claim,evidence pair.
+ - title: The title of the wikipedia article originating the evidence.
+ - ann1_label: The original label from the first annotator.
+ - ann1_label: The original label from the second annotator.
+ - pred_label: The predicted label of the external fact checking model.
+ - control_group: Whether or not the STSB objective was used to generate the triggers (0: no stsb; 1: uses stsb) 
