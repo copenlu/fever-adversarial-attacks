@@ -38,6 +38,8 @@ This is done for SUPPORTS and REFUTES classes as NEI do not have evidence.<br>
 `export PYTHONPATH=./`<br>
 `python scripts/create_nli_dataset.py --dataset_dirs data/paper_train.jsonl --wiki_dir data/wiki-pages/wiki-pages/ --output_paths data/train_sr_nli.jsonl`
 
+Where paper_train.jsonl is an example path to a FEVER's dataset file in jsonl format, and wiki-pages is an example path to the Wikipedia dump from the FEVER dataset.
+
 2. We then collect evidence sentences for the NEI class using the Papelo system from FEVER'2018 
 and merge the outputs of the system for the NEI class with the gold evidence sentences collected in the previous step.<br>
 `PYTHONPATH=fever2018-retrieval/src`<br>
