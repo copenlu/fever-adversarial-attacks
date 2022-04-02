@@ -33,6 +33,8 @@ directionality and semantic validity of the claim better than previous work.
 
 
 # Dataset Preparation
+The data used for training a fact checking model can be found at [HuggingFace fever_gold_evidence dataset](https://huggingface.co/datasets/copenlu/fever_gold_evidence)
+
 1. We join each claim with its gold evidence sentences from the Wikipedia pages. 
 This is done for SUPPORTS and REFUTES classes as NEI do not have evidence.<br>
 `export PYTHONPATH=./`<br>
